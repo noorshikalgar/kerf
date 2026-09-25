@@ -137,7 +137,11 @@ default · hover (`bg.ash`) · active/pressed · focus-visible (1px frost ring) 
 | ⌘R | Refresh refs & diff |
 | ⌘1 / ⌘2 | Open Base / Compare picker |
 | ⌘⇧S | Swap Base ⇄ Compare |
-| ⌘⇧M | Toggle 3-dot / 2-dot |
+| ⌘⇧M | Toggle PR Merge View / Compare View |
+| F1 / ? | Explain the two views (popup) |
+| ⌘W | Close tab |
+| ⌘⇧[ / ⌘⇧] | Previous / next tab |
+| ↵ / double-click | Keep preview tab open (pin) |
 | ⌘⇧F / ⌘⇧C | Files tab / Commits tab |
 | ⌘B | Toggle sidebar |
 | ↑ ↓ / k j | Move list selection |

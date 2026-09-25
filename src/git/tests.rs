@@ -45,7 +45,7 @@ impl Fixture {
 }
 
 fn spec(base: &str, compare: &str) -> RangeSpec {
-    RangeSpec { base: base.into(), compare: compare.into(), mode: RangeMode::ThreeDot }
+    RangeSpec { base: base.into(), compare: compare.into(), mode: RangeMode::PrMerge }
 }
 
 /// main: A ─ B(main)        feature: A ─ C ─ D(feature)
@@ -116,7 +116,7 @@ fn three_dot_shows_only_compare_changes() {
     let f = diverged();
     let r = f.repo();
     let cmp = r.compare(&spec("main", "feature")).unwrap();
-    assert_eq!(cmp.mode, RangeMode::ThreeDot);
+    assert_eq!(cmp.mode, RangeMode::PrMerge);
     assert!(cmp.merge_base.is_some());
     assert_eq!(cmp.ahead.iter().map(|c| c.summary.as_str()).collect::<Vec<_>>(), ["D: add new", "C: rename b"]);
     assert_eq!(cmp.behind.iter().map(|c| c.summary.as_str()).collect::<Vec<_>>(), ["B: main readme"]);
@@ -134,7 +134,7 @@ fn two_dot_includes_base_side_changes() {
     let f = diverged();
     let r = f.repo();
     let cmp = r
-        .compare(&RangeSpec { mode: RangeMode::TwoDot, ..spec("main", "feature") })
+        .compare(&RangeSpec { mode: RangeMode::Compare, ..spec("main", "feature") })
         .unwrap();
     let paths: Vec<_> = r.changes(cmp.source).unwrap().into_iter().map(|c| c.path).collect();
     assert_eq!(paths, ["README.md", "src/lib.rs", "src/new.rs"]);
@@ -159,7 +159,7 @@ fn unrelated_histories_fall_back_to_two_dot() {
     f.commit("pages");
     let cmp = f.repo().compare(&spec("main", "pages")).unwrap();
     assert!(cmp.unrelated());
-    assert_eq!(cmp.mode, RangeMode::TwoDot);
+    assert_eq!(cmp.mode, RangeMode::Compare);
 }
 
 #[test]

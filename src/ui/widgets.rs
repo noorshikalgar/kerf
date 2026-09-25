@@ -153,3 +153,21 @@ pub fn ref_icon_color(look: super::app::RefLook) -> Hsla {
         Rev => theme::mute(),
     }
 }
+
+/// Disclosure chevron. Nerd Font codicons (crisp, Zed-like) or large triangles as fallback.
+pub fn chevron(open: bool, nerd: bool) -> Div {
+    let glyph = match (open, nerd) {
+        (true, true) => "\u{eab4}",
+        (false, true) => "\u{eab6}",
+        (true, false) => "▼",
+        (false, false) => "▶",
+    };
+    div()
+        .w(px(16.))
+        .flex_none()
+        .flex()
+        .justify_center()
+        .text_size(if nerd { theme::TEXT_LIST } else { theme::TEXT_MICRO })
+        .text_color(theme::mute())
+        .child(glyph)
+}

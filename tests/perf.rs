@@ -35,7 +35,7 @@ fn hundred_k_line_rust_file() {
 
     let t = Instant::now();
     let repo = Repo::open(p).unwrap();
-    let cmp = repo.compare(&RangeSpec { base: "main".into(), compare: "b".into(), mode: RangeMode::ThreeDot }).unwrap();
+    let cmp = repo.compare(&RangeSpec { base: "main".into(), compare: "b".into(), mode: RangeMode::PrMerge }).unwrap();
     let changes = repo.changes(cmp.source).unwrap();
     println!("changes: {:?}", t.elapsed());
 

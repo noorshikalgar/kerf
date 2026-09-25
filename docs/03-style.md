@@ -88,7 +88,7 @@ Syntax colours sit *on top of* add/del tints; both are tuned so contrast holds (
 
 ## 4. Iconography
 
-Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `List`, `3-dot`, `2-dot`) — symbols like `⫼ ⎵ …` render too small in JetBrains Mono. Glyphs only where universally clear and legible: `▾ ▸ ⇄ ↑ ↓ ✓`. Shortcut hints use `ink.mute` at `text.control`, never `ink.faint`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
+Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `List`, `PR Merge`, `Compare`) — symbols like `⫼ ⎵ …` render too small in JetBrains Mono. Glyphs only where universally clear and legible: `▾ ▸ ⇄ ↑ ↓ ✓`. Shortcut hints use `ink.mute` at `text.control`, never `ink.faint`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
 
 ## 5. Components
 
@@ -104,6 +104,8 @@ Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `Lis
 | **Hunk header** | 20h, `bg.crypt`, `@@ … @@` `ink.mute`, section context `ink.body` |
 | **Gap row** | 20h, `bg.void`, centred `⋯ N unchanged lines` `ink.faint`→hover `ink.mute` |
 | **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
+| **Tab** (diff) | 36h, max 240w, `bg.abyss`; active `bg.crypt` + 2px frost top bar; preview tab name *italic*; close × visible on hover/active; hairline separators |
+| **Chevron** | Nerd codicon `` / `` at `text.list` in `ink.mute`, 16px column; fallback `▶ ▼` |
 | **Spinner** | 3-dot pulse in `ink.mute`, 12px |
 | **Minimap** | Dedicated 18px column left of the scrollbar, `bg.void`: one 2px tick per changed row (add/del fg, sampled to ~400), frame (`ink.mute` hairlines, 6% white fill; frost while dragging) shows the visible region. Click/drag centres the view. |
 | **Scrollbar** | Dedicated 12px column at the far right, `bg.abyss`, 1px `line` left edge. Opaque thumb `#666360` (3.3:1 on abyss), hover `#8f8a82`, frost while dragging, min 24px. Grab to drag or click track to jump; wheel works too. Never overlays content. |

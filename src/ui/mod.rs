@@ -2,6 +2,7 @@
 
 mod app;
 mod diff_view;
+mod info;
 mod picker;
 mod scrollbar;
 mod sidebar;
@@ -45,6 +46,10 @@ actions!(
         CopyItem,
         SetBase,
         SetCompare,
+        CloseTab,
+        NextTab,
+        PrevTab,
+        ShowInfo,
         FocusFilter,
         PageUp,
         PageDown,
@@ -65,6 +70,12 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-c", CommitsTab, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-w", CloseTab, None),
+        KeyBinding::new("cmd-shift-]", NextTab, None),
+        KeyBinding::new("cmd-shift-[", PrevTab, None),
+        KeyBinding::new("ctrl-tab", NextTab, None),
+        KeyBinding::new("ctrl-shift-tab", PrevTab, None),
+        KeyBinding::new("f1", ShowInfo, None),
         // Navigation works in both normal and text-input mode.
         KeyBinding::new("up", Up, None),
         KeyBinding::new("down", Down, None),
@@ -87,6 +98,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("y", CopyItem, Some("Kerf")),
         KeyBinding::new("b", SetBase, Some("Kerf")),
         KeyBinding::new("c", SetCompare, Some("Kerf")),
+        KeyBinding::new("?", ShowInfo, Some("Kerf")),
+        KeyBinding::new("shift-/", ShowInfo, Some("Kerf")),
         KeyBinding::new("/", FocusFilter, Some("Kerf")),
         KeyBinding::new("pageup", PageUp, Some("Kerf")),
         KeyBinding::new("pagedown", PageDown, Some("Kerf")),

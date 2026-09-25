@@ -25,11 +25,37 @@ pub struct RefInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RangeMode {
-    /// `merge-base(base, compare)` → `compare`: what Compare introduced.
+    /// PR Merge View (`base...compare`): `merge-base(base, compare)` → `compare`.
+    /// Only what Compare introduced — what a PR from compare into base would merge.
     #[default]
-    ThreeDot,
-    /// `base` → `compare`, tip to tip.
-    TwoDot,
+    PrMerge,
+    /// Compare View (`base..compare`): `base` tip → `compare` tip.
+    /// Full current difference; base-only commits show up as removals.
+    Compare,
+}
+
+impl RangeMode {
+    /// User-facing name.
+    pub fn label(self) -> &'static str {
+        match self {
+            RangeMode::PrMerge => "PR Merge View",
+            RangeMode::Compare => "Compare View",
+        }
+    }
+    /// Compact name for tight controls.
+    pub fn short(self) -> &'static str {
+        match self {
+            RangeMode::PrMerge => "PR Merge",
+            RangeMode::Compare => "Compare",
+        }
+    }
+    /// Equivalent git notation, for people who know it.
+    pub fn git(self) -> &'static str {
+        match self {
+            RangeMode::PrMerge => "git diff base...compare",
+            RangeMode::Compare => "git diff base..compare",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

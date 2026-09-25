@@ -52,12 +52,15 @@ impl Kerf {
         let mut left: Vec<AnyElement> = Vec::new();
         if let (Some(b), Some(c)) = (&self.base, &self.compare) {
             left.push(div().child(format!("{} … {}", self.display_ref(b), self.display_ref(c))).into_any_element());
+            let unrelated = self.range_data().is_some_and(|d| d.cmp.unrelated());
+            let mode = if unrelated { RangeMode::Compare } else { self.mode };
+            left.push(div().text_color(theme::body()).child(mode.label()).into_any_element());
         }
         if let Some(d) = self.range_data() {
             left.push(div().child(format!("{} files", widgets::thousands(d.changes.len() as u64))).into_any_element());
             left.push(counts(Some(d.additions), Some(d.deletions)).into_any_element());
             if d.cmp.unrelated() {
-                left.push(div().text_color(theme::mod_fg()).child("no common ancestor · two-dot").into_any_element());
+                left.push(div().text_color(theme::mod_fg()).child("no common ancestor").into_any_element());
             }
         }
         let viewed = self.range_data().map(|d| (self.viewed.len(), d.changes.len()));
@@ -234,7 +237,7 @@ impl Kerf {
                     .child(micro(label))
                     .child(div().flex_1())
                     .child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child(key))
-                    .child(div().ml(px(6.)).text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("▾")),
+                    .child(widgets::chevron(true, nerd).ml(px(4.))),
             )
             .child(match d {
                 None => div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child("Pick a branch or commit…"),
@@ -326,21 +329,52 @@ impl Kerf {
                     .items_center()
                     .gap(px(4.))
                     .child(
-                        seg("3dot", "3-dot", self.mode == RangeMode::ThreeDot && !unrelated, "Three-dot: changes introduced by compare  ⌘⇧M")
+                        seg("mode-pr", RangeMode::PrMerge.short(), self.mode == RangeMode::PrMerge && !unrelated, "PR Merge View — only what compare adds (like a GitHub PR)  ⌘⇧M")
+                            .when(unrelated, |d| d.opacity(0.4))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                if this.mode != RangeMode::ThreeDot {
+                                if this.mode != RangeMode::PrMerge {
                                     this.toggle_mode(cx)
                                 }
                             })),
                     )
                     .child(
-                        seg("2dot", "2-dot", self.mode == RangeMode::TwoDot || unrelated, "Two-dot: tip-to-tip tree difference  ⌘⇧M")
+                        seg("mode-cmp", RangeMode::Compare.short(), self.mode == RangeMode::Compare || unrelated, "Compare View — full difference between the two tips  ⌘⇧M")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                if this.mode != RangeMode::TwoDot {
+                                if this.mode != RangeMode::Compare {
                                     this.toggle_mode(cx)
                                 }
                             })),
                     )
+                    .child(div().flex_1())
+                    .child(
+                        seg("mode-help", "?", self.info_open, "What's the difference?  F1")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.info_open = !this.info_open;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .when_some(self.mode_sentence(), |d, (text, warn)| {
+                d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::body()).child(text))
+                    .when_some(warn, |d, w| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mod_fg()).child(w)))
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .when_some(data.as_ref(), |d, data| {
+                        let mb = match data.cmp.merge_base {
+                            Some(o) => format!("Merge base {}", short_sha(o)),
+                            None => "No common ancestor".into(),
+                        };
+                        d.child(
+                            div()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(if unrelated { theme::mod_fg() } else { theme::mute() })
+                                .child(mb),
+                        )
+                    })
                     .child(div().flex_1())
                     .map(|d| match (&self.range, &data) {
                         (RangeState::Loading, _) => d.child(widgets::spinner()),
@@ -350,18 +384,6 @@ impl Kerf {
                         _ => d,
                     }),
             )
-            .when_some(data.as_ref(), |d, data| {
-                let mb = match data.cmp.merge_base {
-                    Some(o) => format!("Merge base {}", short_sha(o)),
-                    None => "No common ancestor — two-dot diff".into(),
-                };
-                d.child(
-                    div()
-                        .text_size(theme::TEXT_CONTROL)
-                        .text_color(if unrelated { theme::mod_fg() } else { theme::mute() })
-                        .child(mb),
-                )
-            })
             .when_some(
                 match &self.range {
                     RangeState::Error(e) => Some(e.clone()),
@@ -369,6 +391,31 @@ impl Kerf {
                 },
                 |d, e| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::del_fg()).child(e)),
             )
+    }
+
+    /// Plain-language description of the current mode, plus a warning when it can mislead.
+    fn mode_sentence(&self) -> Option<(String, Option<String>)> {
+        let (b, c) = (self.base.as_deref()?, self.compare.as_deref()?);
+        let (b, c) = (self.display_ref(b), self.display_ref(c));
+        let data = self.range_data();
+        if data.is_some_and(|d| d.cmp.unrelated()) {
+            return Some((
+                format!("{b} and {c} share no history — showing the full difference."),
+                None,
+            ));
+        }
+        Some(match self.mode {
+            RangeMode::PrMerge => (format!("Changes on {c} since it branched from {b}."), None),
+            RangeMode::Compare => {
+                let behind = data.map(|d| d.cmp.behind.len()).unwrap_or(0);
+                (
+                    format!("Everything that differs between {b} and {c} right now."),
+                    (behind > 0).then(|| {
+                        format!("⚠ {behind} commit{} only on {b} appear as removals.", if behind == 1 { "" } else { "s" })
+                    }),
+                )
+            }
+        })
     }
 
     fn render_tabs(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -538,9 +585,20 @@ impl Kerf {
             .when(row.selectable(), |d| {
                 d.cursor_pointer()
                     .when(!selected, |d| d.hover(|s| s.bg(theme::ash())))
-                    .on_click(cx.listener(move |this, _, _, cx| this.click_row(ix, cx)))
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                        // Double-click keeps the file in its own (pinned) tab.
+                        if ev.click_count() >= 2 {
+                            this.pin_next = true;
+                            if this.selected == Some(ix) {
+                                this.pin_active(cx);
+                                return;
+                            }
+                        }
+                        this.click_row(ix, cx);
+                        this.pin_next = false;
+                    }))
             });
-        let indent = |depth: usize| px(10. + depth as f32 * 12.);
+        let indent = |depth: usize| px(6. + depth as f32 * 14.);
         match row {
             ListRow::Summary => {
                 let d = self.range_data();
@@ -566,7 +624,7 @@ impl Kerf {
             ListRow::Dir { name, depth, collapsed, files, .. } => base
                 .pl(indent(*depth))
                 .text_color(if selected { theme::bone() } else { theme::body() })
-                .child(div().w(px(10.)).flex_none().text_color(theme::mute()).child(if *collapsed { "▸" } else { "▾" }))
+                .child(widgets::chevron(!*collapsed, self.nerd()))
                 .child(
                     div()
                         .flex_1()
@@ -635,7 +693,7 @@ impl Kerf {
                 .pl(px(10.))
                 .text_size(theme::TEXT_MICRO)
                 .text_color(theme::mute())
-                .child(div().w(px(10.)).child(if *open { "▾" } else { "▸" }))
+                .child(widgets::chevron(*open, self.nerd()))
                 .child(match group {
                     Group::Ahead => "Ahead · In Compare, Not Base",
                     Group::Behind => "Behind · In Base, Not Compare",
@@ -653,7 +711,7 @@ impl Kerf {
                 let is_base = self.base.as_deref().is_some_and(|b| b.len() >= 7 && sha.starts_with(b));
                 let is_compare = self.compare.as_deref().is_some_and(|b| b.len() >= 7 && sha.starts_with(b));
                 base.pl(px(10.))
-                    .child(div().w(px(10.)).flex_none().text_color(theme::mute()).child(if open { "▾" } else { "▸" }))
+                    .child(widgets::chevron(open, self.nerd()))
                     .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::syn_type()).child(c.short()))
                     .when(c.is_merge(), |d| d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE")))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c.summary.clone()))

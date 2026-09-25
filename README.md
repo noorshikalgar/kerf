@@ -8,10 +8,13 @@ A fast, native, keyboard-first **Git branch diff viewer** built in Rust on [GPUI
 
 - Open any local repo (`kerf <path>`, ⌘O, or recents) — root auto-discovered
 - Pick **Base** and **Compare** from a fuzzy picker — branches, remotes, tags, **any commit** (recent list, SHA prefix, message search, or revisions like `HEAD~3`) — defaults to `main`/`develop` vs current branch
-- Three-dot (what Compare introduced) or two-dot (tip-to-tip) — auto two-dot for unrelated histories
+- Two views, explained in-app (F1 / `?`):
+  - **PR Merge View** (`base...compare`) — only what compare adds, like a GitHub PR
+  - **Compare View** (`base..compare`) — full tip-to-tip difference; used automatically for unrelated histories
 - Merge base, ahead / behind counts
 - **Files** tab: tree or flat, status glyphs, +/− counts, rename similarity, binary/generated badges, filter, viewed ticks
 - **Commits** tab: ahead + behind groups, expand a commit to walk its own files (merges vs first parent)
+- **Tabs**: single-click opens a preview tab (italic), double-click / ↵ keeps it; ⌘W close, ⌘⇧[ ⌘⇧] switch, middle-click close; each tab keeps its scroll
 - Diff pane: unified or split, word-level emphasis, syntax colour, hunk headers with function context, collapsed gaps (click to expand), hunk minimap
 - Big files: diffs computed off the UI thread, virtualized rendering, 20 MB gate, 10k-char line truncation, lockfiles/`*.min.*`/`dist/` collapsed by default
 - 100k-line file diff → ~150 ms (release)
@@ -32,10 +35,11 @@ Requires Rust 1.85+ on macOS. GPUI is built with `runtime_shaders`, so the Xcode
 | ⌘R | refresh | ← → / h l | collapse / expand |
 | ⌘1 / ⌘2 | pick base / compare | ] [ | next / previous file |
 | ⌘⇧S | swap base ⇄ compare | n p | next / previous hunk |
-| ⌘⇧M | 3-dot / 2-dot | s | split / unified |
+| ⌘⇧M | PR Merge / Compare view | s | split / unified |
 | ⌘⇧F / ⌘⇧C | files / commits tab | w | ignore whitespace |
 | ⌘B | toggle sidebar | t | tree / flat |
-| b / c | commit → base / compare | | |
+| b / c | commit → base / compare | F1 / ? | explain views |
+| ⌘W | close tab | ⌘⇧[ ⌘⇧] | previous / next tab |
 | / | filter files | y | copy path / SHA |
 | space / ⇧space | page down / up | g / G | top / bottom |
 

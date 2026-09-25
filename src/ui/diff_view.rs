@@ -32,6 +32,9 @@ impl Kerf {
             DiffState::Error { target, message } => (Some(target.clone()), None, false, Some(message.clone())),
         };
         let mut pane = div().flex_1().min_w_0().h_full().flex().flex_col().bg(theme::void());
+        if !self.tabs.is_empty() {
+            pane = pane.child(self.render_tab_bar(cx));
+        }
         let Some(target) = target else {
             return pane.child(self.render_welcome()).into_any_element();
         };
@@ -59,6 +62,107 @@ impl Kerf {
                 .into_any_element()
             }
         }
+    }
+
+    /// Zed-style tab strip: preview tab in italics, close on hover/active, middle-click closes,
+    /// double-click pins.
+    fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let nerd = self.nerd();
+        div()
+            .id("tab-bar")
+            .h(theme::HEADER_H)
+            .flex_none()
+            .flex()
+            .items_end()
+            .bg(theme::abyss())
+            .border_b_1()
+            .border_color(theme::line())
+            .overflow_x_scroll()
+            .children(self.tabs.iter().enumerate().map(|(i, t)| {
+                let active = self.active_tab == Some(i);
+                let c = &t.target.change;
+                let name = c.path.rsplit('/').next().unwrap_or(&c.path).to_string();
+                let path = c.path.clone();
+                let commit = t.target.commit.as_ref().map(|c| c.short());
+                let tip = match &commit {
+                    Some(sha) => format!("{path} @ {sha}"),
+                    None => path,
+                };
+                div()
+                    .id(("tab", i))
+                    .group("tab")
+                    .h_full()
+                    .max_w(px(240.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .pl(px(12.))
+                    .pr(px(6.))
+                    .relative()
+                    .border_r_1()
+                    .border_color(theme::line())
+                    .when(active, |d| {
+                        d.bg(theme::crypt())
+                            .child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(theme::frost()))
+                    })
+                    .when(!active, |d| d.hover(|s| s.bg(theme::ash())))
+                    .cursor_pointer()
+                    .tooltip(move |_, cx| cx.new(|_| TabTip(tip.clone())).into())
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                        if ev.click_count() >= 2 {
+                            if let Some(t) = this.tabs.get_mut(i) {
+                                t.pinned = true;
+                            }
+                        }
+                        this.activate_tab(i, cx);
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Middle,
+                        cx.listener(move |this, _, _, cx| this.close_tab(i, cx)),
+                    )
+                    .child(status_glyph(c.status))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_size(theme::TEXT_LIST)
+                            .text_color(if active { theme::bone() } else { theme::body() })
+                            .when(!t.pinned, |d| d.italic())
+                            .child(name),
+                    )
+                    .when_some(commit, |d, sha| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::syn_type())
+                                .child(format!("{} {sha}", widgets::ref_icon(super::app::RefLook::Commit, nerd))),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id(("tab-close", i))
+                            .w(px(20.))
+                            .h(px(20.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(theme::RADIUS)
+                            .text_size(theme::TEXT_LIST)
+                            .text_color(theme::mute())
+                            .when(!active, |d| d.invisible().group_hover("tab", |s| s.visible()))
+                            .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(i, cx);
+                            }))
+                            .child("×"),
+                    )
+            }))
     }
 
     fn render_welcome(&self) -> impl IntoElement {
@@ -560,5 +664,22 @@ fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement 
                 .child(half(right, false))
                 .into_any_element()
         }
+    }
+}
+
+struct TabTip(String);
+
+impl Render for TabTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(8.))
+            .py(px(4.))
+            .bg(theme::crypt())
+            .border_1()
+            .border_color(theme::line_hi())
+            .rounded(theme::RADIUS)
+            .text_size(theme::TEXT_CONTROL)
+            .text_color(theme::body())
+            .child(self.0.clone())
     }
 }

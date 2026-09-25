@@ -137,6 +137,15 @@ pub struct Described {
     pub sha: Option<String>,
 }
 
+/// An open diff tab. The active tab's live state is `Kerf::diff`; others keep a cached copy.
+pub struct DiffTab {
+    pub target: Target,
+    pub cached: Option<Arc<Loaded>>,
+    pub scroll: UniformListScrollHandle,
+    /// Preview tabs (italic) are replaced by the next file opened; pinned tabs stay.
+    pub pinned: bool,
+}
+
 pub struct Picker {
     pub which: Which,
     pub query: String,
@@ -193,6 +202,11 @@ pub struct Kerf {
     pub shown_generated: HashSet<String>,
     pub full_context: HashSet<String>,
     pub diff_scroll: UniformListScrollHandle,
+    pub tabs: Vec<DiffTab>,
+    pub active_tab: Option<usize>,
+    /// Set by double-click / Enter so the next opened file gets a pinned tab.
+    pub pin_next: bool,
+    pub info_open: bool,
 
     pub picker: Option<Picker>,
     pub sidebar_open: bool,
@@ -230,7 +244,7 @@ impl Kerf {
             commits: Arc::new(Vec::new()),
             base: None,
             compare: None,
-            mode: RangeMode::ThreeDot,
+            mode: RangeMode::PrMerge,
             range: RangeState::Idle,
             range_gen: 0,
             range_task: None,
@@ -254,6 +268,10 @@ impl Kerf {
             shown_generated: HashSet::new(),
             full_context: HashSet::new(),
             diff_scroll: UniformListScrollHandle::new(),
+            tabs: Vec::new(),
+            active_tab: None,
+            pin_next: false,
+            info_open: false,
             picker: None,
             sidebar_open: true,
             resizing: false,
@@ -342,6 +360,8 @@ impl Kerf {
     }
 
     fn reset_view(&mut self) {
+        self.tabs.clear();
+        self.active_tab = None;
         self.range = RangeState::Idle;
         self.diff = DiffState::Empty;
         self.expanded = None;
@@ -418,6 +438,7 @@ impl Kerf {
                     Ok(data) => RangeState::Ready(Arc::new(data)),
                     Err(e) => RangeState::Error(e.to_string()),
                 };
+                this.rebind_tabs();
                 this.expanded = None;
                 this.rebuild_rows();
                 // Keep the same file selected across refreshes when it still exists.
@@ -425,11 +446,17 @@ impl Kerf {
                 let first = reselect.or_else(|| this.rows.iter().position(|r| matches!(r, ListRow::File { .. })));
                 match first {
                     Some(ix) if this.tab == Tab::Files => this.select_row(ix, cx),
-                    _ => {
-                        if this.tab == Tab::Files {
-                            this.diff = DiffState::Empty;
+                    _ => match this.active_tab {
+                        Some(a) => {
+                            this.active_tab = None;
+                            this.activate_tab(a, cx);
                         }
-                    }
+                        None => {
+                            if this.tab == Tab::Files {
+                                this.diff = DiffState::Empty;
+                            }
+                        }
+                    },
                 }
                 cx.notify();
             })
@@ -466,8 +493,8 @@ impl Kerf {
             return;
         }
         self.mode = match self.mode {
-            RangeMode::ThreeDot => RangeMode::TwoDot,
-            RangeMode::TwoDot => RangeMode::ThreeDot,
+            RangeMode::PrMerge => RangeMode::Compare,
+            RangeMode::Compare => RangeMode::PrMerge,
         };
         self.load_range(cx);
     }
@@ -786,15 +813,152 @@ impl Kerf {
     }
 
     pub fn show(&mut self, target: Target, cx: &mut Context<Self>) {
-        if let DiffState::Ready(l) = &self.diff {
-            if l.target.key() == target.key() && l.target.commit.as_ref().map(|c| c.oid) == target.commit.as_ref().map(|c| c.oid) {
-                return;
+        let pin = std::mem::take(&mut self.pin_next);
+        self.open_target(target, pin, cx);
+    }
+
+    // ───────────────────────────── tabs ─────────────────────────────
+
+    /// Opens `target`: focuses its tab if open, else replaces the preview tab or adds a new one.
+    pub fn open_target(&mut self, target: Target, pin: bool, cx: &mut Context<Self>) {
+        let key = target.key();
+        if let Some(i) = self.tabs.iter().position(|t| t.target.key() == key) {
+            if pin {
+                self.tabs[i].pinned = true;
             }
+            if self.active_tab != Some(i) {
+                self.activate_tab(i, cx);
+            }
+            return;
         }
+        self.stash_active();
+        let tab = DiffTab { target: target.clone(), cached: None, scroll: UniformListScrollHandle::new(), pinned: pin };
+        let pinned: Vec<bool> = self.tabs.iter().map(|t| t.pinned).collect();
+        let (idx, replace) = place_tab(&pinned, self.active_tab);
+        if replace {
+            self.tabs[idx] = tab;
+        } else {
+            self.tabs.insert(idx, tab);
+        }
+        self.active_tab = Some(idx);
+        self.diff_scroll = self.tabs[idx].scroll.clone();
         self.load_diff(target, true, cx);
     }
 
+    /// Saves the active tab's ready diff so switching back is instant.
+    fn stash_active(&mut self) {
+        if let (Some(a), DiffState::Ready(l)) = (self.active_tab, &self.diff) {
+            if let Some(t) = self.tabs.get_mut(a) {
+                if t.target.key() == l.target.key() {
+                    t.cached = Some(l.clone());
+                }
+            }
+        }
+    }
+
+    pub fn activate_tab(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i >= self.tabs.len() {
+            return;
+        }
+        self.stash_active();
+        self.active_tab = Some(i);
+        self.diff_scroll = self.tabs[i].scroll.clone();
+        match self.tabs[i].cached.clone() {
+            Some(l) => {
+                self.diff_gen += 1; // drop any in-flight load for the old tab
+                self.hl_task = None;
+                self.diff = DiffState::Ready(l);
+            }
+            None => {
+                let t = self.tabs[i].target.clone();
+                self.load_diff(t, false, cx);
+            }
+        }
+        self.sync_selection_to_tab();
+        cx.notify();
+    }
+
+    pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i >= self.tabs.len() {
+            return;
+        }
+        self.tabs.remove(i);
+        match self.active_tab {
+            Some(a) if a == i => {
+                if self.tabs.is_empty() {
+                    self.active_tab = None;
+                    self.diff_gen += 1;
+                    self.diff = DiffState::Empty;
+                } else {
+                    // Zed/VS Code: activate the tab that slid into this slot, else the previous one.
+                    self.active_tab = None;
+                    self.activate_tab(i.min(self.tabs.len() - 1), cx);
+                }
+            }
+            Some(a) if a > i => self.active_tab = Some(a - 1),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    fn cycle_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let n = self.tabs.len();
+        let Some(a) = self.active_tab.filter(|_| n > 1) else { return };
+        let next = if forward { (a + 1) % n } else { (a + n - 1) % n };
+        self.activate_tab(next, cx);
+    }
+
+    pub fn pin_active(&mut self, cx: &mut Context<Self>) {
+        if let Some(t) = self.active_tab.and_then(|a| self.tabs.get_mut(a)) {
+            t.pinned = true;
+            cx.notify();
+        }
+    }
+
+    /// After the range changes: point range-file tabs at the new range, drop ones whose file
+    /// is no longer part of it. Commit tabs are independent of the range and stay.
+    fn rebind_tabs(&mut self) {
+        let Some(data) = self.range_data().cloned() else { return };
+        let active_key = self.active_tab.and_then(|a| self.tabs.get(a)).map(|t| t.target.change.path.clone());
+        self.tabs.retain_mut(|t| {
+            if t.target.commit.is_some() {
+                return true;
+            }
+            match data.changes.iter().find(|c| c.path == t.target.change.path) {
+                Some(c) => {
+                    t.target = Target { source: data.cmp.source, change: c.clone(), commit: None };
+                    t.cached = None;
+                    true
+                }
+                None => false,
+            }
+        });
+        self.active_tab = active_key
+            .and_then(|p| self.tabs.iter().position(|t| t.target.commit.is_none() && t.target.change.path == p))
+            .or_else(|| self.tabs.len().checked_sub(1));
+        if let Some(a) = self.active_tab {
+            self.diff_scroll = self.tabs[a].scroll.clone();
+        }
+    }
+
+    /// Highlights the sidebar row for the active tab's file (Files tab only), without reopening.
+    fn sync_selection_to_tab(&mut self) {
+        let Some(t) = self.active_tab.and_then(|a| self.tabs.get(a)) else { return };
+        if self.tab != Tab::Files || t.target.commit.is_some() {
+            return;
+        }
+        let path = t.target.change.path.clone();
+        if let Some(ix) = self.row_for_path(&path) {
+            self.selected = Some(ix);
+            self.list_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+        }
+    }
+
+    /// Re-runs the active diff with current options; other tabs' caches are stale now.
     fn reload_diff(&mut self, cx: &mut Context<Self>) {
+        for t in &mut self.tabs {
+            t.cached = None;
+        }
         if let Some(t) = self.current_target().cloned() {
             self.load_diff(t, false, cx);
         }
@@ -1041,6 +1205,11 @@ impl Kerf {
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
+        if self.info_open {
+            self.info_open = false;
+            cx.notify();
+            return;
+        }
         match self.input {
             Input::Picker => self.picker = None,
             Input::Filter => {}
@@ -1207,12 +1376,28 @@ impl Render for Kerf {
                         || this.showing_collapsed_generated()
                     {
                         this.force_load(cx);
+                    } else if matches!(
+                        this.selected.and_then(|i| this.rows.get(i)),
+                        Some(ListRow::File { .. }) | Some(ListRow::CommitFile { .. })
+                    ) {
+                        this.pin_active(cx);
                     } else {
                         this.toggle_row(None, cx);
                     }
                 }
             }))
             .on_action(cx.listener(|this, _: &Cancel, _, cx| this.close_input(cx)))
+            .on_action(cx.listener(|this, _: &CloseTab, _, cx| {
+                if let Some(a) = this.active_tab {
+                    this.close_tab(a, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle_tab(true, cx)))
+            .on_action(cx.listener(|this, _: &PrevTab, _, cx| this.cycle_tab(false, cx)))
+            .on_action(cx.listener(|this, _: &ShowInfo, _, cx| {
+                this.info_open = !this.info_open;
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &NextFile, _, cx| this.step_file(true, cx)))
             .on_action(cx.listener(|this, _: &PrevFile, _, cx| this.step_file(false, cx)))
             .on_action(cx.listener(|this, _: &NextHunk, _, cx| this.jump_hunk(true, cx)))
@@ -1320,6 +1505,7 @@ impl Render for Kerf {
             )
             .child(self.render_status(cx))
             .children(self.render_picker(window, cx))
+            .children(self.render_info(window, cx))
     }
 }
 
@@ -1389,6 +1575,16 @@ fn row_identity(r: &ListRow) -> String {
         ListRow::Commit { group, idx } => format!("c:{group:?}:{idx}"),
         ListRow::CommitFile { change } => format!("cf:{change}"),
         ListRow::Notice(n) => format!("n:{n}"),
+    }
+}
+
+/// Where a newly opened file goes: `(index, replace?)`. An unpinned (preview) active tab is
+/// replaced; otherwise the new tab is inserted right after the active one (or appended).
+pub fn place_tab(pinned: &[bool], active: Option<usize>) -> (usize, bool) {
+    match active {
+        Some(a) if a < pinned.len() && !pinned[a] => (a, true),
+        Some(a) if a < pinned.len() => (a + 1, false),
+        _ => (pinned.len(), false),
     }
 }
 
@@ -1589,6 +1785,16 @@ mod tests {
             vec![r("main"), r("feature/login")],
             vec![c("abc1234", "fix login bug"), c("def5678", "add readme")],
         )
+    }
+
+    #[test]
+    fn preview_tab_is_replaced_pinned_tab_is_kept() {
+        use super::place_tab;
+        assert_eq!(place_tab(&[], None), (0, false)); // first tab
+        assert_eq!(place_tab(&[false], Some(0)), (0, true)); // replace preview
+        assert_eq!(place_tab(&[true], Some(0)), (1, false)); // after pinned
+        assert_eq!(place_tab(&[true, true, true], Some(1)), (2, false)); // right after active
+        assert_eq!(place_tab(&[true, false], Some(1)), (1, true));
     }
 
     #[test]

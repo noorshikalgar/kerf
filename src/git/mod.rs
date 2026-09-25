@@ -144,10 +144,10 @@ impl Repo {
         let base = self.resolve(&spec.base)?;
         let compare = self.resolve(&spec.compare)?;
         let merge_base = self.repo.merge_base(base, compare).ok();
-        let mode = if merge_base.is_none() { RangeMode::TwoDot } else { spec.mode };
+        let mode = if merge_base.is_none() { RangeMode::Compare } else { spec.mode };
         let from_commit = match mode {
-            RangeMode::ThreeDot => merge_base.unwrap_or(base),
-            RangeMode::TwoDot => base,
+            RangeMode::PrMerge => merge_base.unwrap_or(base),
+            RangeMode::Compare => base,
         };
         let source = DiffSource {
             old: Some(self.repo.find_commit(from_commit)?.tree_id()),
