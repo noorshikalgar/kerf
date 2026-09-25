@@ -438,7 +438,8 @@ impl Kerf {
         div()
             .flex_1()
             .min_h_0()
-            .relative()
+            .flex()
+            .flex_row()
             .child(
                 uniform_list(
                     "list",
@@ -448,9 +449,11 @@ impl Kerf {
                     }),
                 )
                 .track_scroll(self.list_scroll.clone())
-                .size_full(),
+                .flex_1()
+                .min_w_0()
+                .h_full(),
             )
-            .child(self.render_scrollbar(super::scrollbar::Bar::List, Vec::new(), cx))
+            .child(self.render_scrollbar(super::scrollbar::Bar::List, cx))
             .into_any_element()
     }
 

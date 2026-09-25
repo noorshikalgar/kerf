@@ -105,7 +105,8 @@ Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `Lis
 | **Gap row** | 20h, `bg.void`, centred `⋯ N unchanged lines` `ink.faint`→hover `ink.mute` |
 | **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
 | **Spinner** | 3-dot pulse in `ink.mute`, 12px |
-| **Scrollbar** | 12px track, opaque thumb `#666360` (3.3:1 on abyss), hover `#8f8a82`, dragging frost, 1px black edge so it reads over hunk markers (markers at 55% opacity). Draggable (min 24px) — grab or click-to-jump; wheel scroll too. Diff bar carries hunk markers in add/del fg |
+| **Minimap** | Dedicated 18px column left of the scrollbar, `bg.void`: one 2px tick per changed row (add/del fg, sampled to ~400), frame (`ink.mute` hairlines, 6% white fill; frost while dragging) shows the visible region. Click/drag centres the view. |
+| **Scrollbar** | Dedicated 12px column at the far right, `bg.abyss`, 1px `line` left edge. Opaque thumb `#666360` (3.3:1 on abyss), hover `#8f8a82`, frost while dragging, min 24px. Grab to drag or click track to jump; wheel works too. Never overlays content. |
 
 ## 6. Measured contrast (WCAG 2.2)
 

@@ -278,16 +278,18 @@ impl Kerf {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .relative()
-                    .child(list)
-                    .child(self.render_minimap(l, cx)),
+                    .flex()
+                    .flex_row()
+                    .child(div().flex_1().min_w_0().h_full().child(list))
+                    .child(self.render_minimap(l, cx))
+                    .child(self.render_scrollbar(Bar::Diff, cx)),
             )
             .children(foot)
             .into_any_element()
     }
 
-    /// Right-edge scrollbar: draggable thumb over hunk markers (coloured by content).
-    fn render_minimap(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Minimap column: one tick per changed row (sampled), coloured by content.
+    fn render_minimap(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> AnyElement {
         let total = l.rows.rows.len().max(1) as f32;
         let mut marks: Vec<AnyElement> = Vec::new();
         let step = (total as usize / 400).max(1); // at most ~400 marks so huge files stay cheap
@@ -321,11 +323,10 @@ impl Kerf {
                     .top(relative(i as f32 / total))
                     .h(px(2.))
                     .bg(color)
-                    .opacity(0.55)
                     .into_any_element(),
             );
         }
-        self.render_scrollbar(Bar::Diff, marks, cx)
+        self.render_map(marks, cx)
     }
 }
 
