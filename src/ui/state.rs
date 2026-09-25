@@ -23,6 +23,10 @@ pub struct Persisted {
     pub sidebar_w: Option<f32>,
     #[serde(default)]
     pub range_collapsed: bool,
+    #[serde(default)]
+    pub banner_collapsed: bool,
+    #[serde(default)]
+    pub banner_h: Option<f32>,
 }
 
 fn yes() -> bool {

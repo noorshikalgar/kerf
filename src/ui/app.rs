@@ -289,6 +289,10 @@ pub struct Kerf {
     pub info_open: bool,
     /// Comparison section expanded in the sidebar.
     pub range_open: bool,
+    /// Commit message panel: expanded, max body height, active drag (start y, start height).
+    pub banner_open: bool,
+    pub banner_h: f32,
+    pub banner_drag: Option<(f32, f32)>,
     pub shortcuts_open: bool,
     pub scratch_seq: u64,
 
@@ -357,6 +361,9 @@ impl Kerf {
             pin_next: false,
             info_open: false,
             range_open: true,
+            banner_open: true,
+            banner_h: BANNER_DEFAULT_H,
+            banner_drag: None,
             shortcuts_open: false,
             scratch_seq: 0,
             picker: None,
@@ -367,6 +374,8 @@ impl Kerf {
             flash_task: None,
         };
         this.range_open = !this.persisted.range_collapsed;
+        this.banner_open = !this.persisted.banner_collapsed;
+        this.banner_h = this.persisted.banner_h.unwrap_or(BANNER_DEFAULT_H);
         match launch {
             super::Launch::Files(a, b) => this.open_files_diff(a, b, cx),
             super::Launch::Repo(p) => this.open_repo(p, cx),
@@ -1570,7 +1579,18 @@ impl Render for Kerf {
                     }
                 }),
             )
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
+                if let Some((start_y, start_h)) = this.banner_drag {
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.banner_drag = None;
+                    } else {
+                        let y: f32 = ev.position.y.into();
+                        let max = f32::from(window.viewport_size().height) * 0.6;
+                        this.banner_h = (start_h + y - start_y).clamp(BANNER_MIN_H, max.max(BANNER_MIN_H));
+                    }
+                    cx.notify();
+                    return;
+                }
                 if this.scroll_drag.is_some() {
                     if ev.pressed_button != Some(MouseButton::Left) {
                         this.scroll_drag = None;
@@ -1594,6 +1614,11 @@ impl Render for Kerf {
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
                     if this.scroll_drag.take().is_some() {
+                        cx.notify();
+                    }
+                    if this.banner_drag.take().is_some() {
+                        this.persisted.banner_h = Some(this.banner_h);
+                        this.persisted.save();
                         cx.notify();
                     }
                     if this.resizing {
@@ -1720,6 +1745,10 @@ pub fn place_tab(pinned: &[bool], active: Option<usize>) -> (usize, bool) {
         _ => (pinned.len(), false),
     }
 }
+
+/// Commit message panel body height: default and minimum (px).
+const BANNER_DEFAULT_H: f32 = 140.;
+const BANNER_MIN_H: f32 = 40.;
 
 /// Commits offered in the picker (newest across local branches).
 const RECENT_COMMITS: usize = 300;

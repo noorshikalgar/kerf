@@ -106,6 +106,7 @@ Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `Lis
 | **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
 | **Tab** (diff) | 36h, max 240w, `bg.abyss`; active `bg.crypt` + 2px frost top bar; preview tab name *italic*; close × visible on hover/active; hairline separators |
 | **Chevron** | Nerd codicon `` / `` at `text.list` in `ink.mute`, 16px column; fallback `▶ ▼` |
+| **Commit panel** | Collapsible header (chevron · `Commit` · SHA (click = copy) · author · age); body = subject + full message in a vertical-only scroll area, text wraps. Max height set by a 5px bottom drag handle (default 140, min 40, max 60% window), persisted. Short messages stay compact. |
 | **Spinner** | 3-dot pulse in `ink.mute`, 12px |
 | **Minimap** | Dedicated 18px column left of the scrollbar, `bg.void`: one 2px tick per changed row (add/del fg, sampled to ~400), frame (`ink.mute` hairlines, 6% white fill; frost while dragging) shows the visible region. Click/drag centres the view. |
 | **Scrollbar** | Dedicated 12px column at the far right, `bg.abyss`, 1px `line` left edge. Opaque thumb `#666360` (3.3:1 on abyss), hover `#8f8a82`, frost while dragging, min 24px. Grab to drag or click track to jump; wheel works too. Never overlays content. |

@@ -43,7 +43,7 @@ impl Kerf {
         };
         pane = pane.child(self.render_file_header(&target, loaded.as_ref().map(|l| &l.0), loading, cx));
         if let Some(c) = &target.commit {
-            pane = pane.child(render_commit_banner(c));
+            pane = pane.child(self.render_commit_banner(c, cx));
         }
         if let Some(msg) = error {
             return pane
@@ -166,6 +166,124 @@ impl Kerf {
                             .child(if nerd { "\u{ea76}" } else { "✕" }),
                     )
             }))
+    }
+
+    /// Commit message panel: one-line header (collapsible), then subject + full body in a
+    /// vertical-only scroll area whose max height the user drags from the bottom edge.
+    fn render_commit_banner(&self, c: &crate::git::CommitInfo, cx: &mut Context<Self>) -> impl IntoElement {
+        let open = self.banner_open;
+        let body: String = c.message.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+        let body = body.trim_end().to_string();
+        let sha = c.oid.to_string();
+        let header = div()
+            .id("banner-header")
+            .h(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pl(px(6.))
+            .pr(px(12.))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::ash()))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.banner_open = !this.banner_open;
+                this.persisted.banner_collapsed = !this.banner_open;
+                this.persisted.save();
+                cx.notify();
+            }))
+            .child(widgets::chevron(open, self.nerd()))
+            .child(micro("Commit"))
+            .child(
+                div()
+                    .id("banner-sha")
+                    .flex_none()
+                    .px(px(4.))
+                    .rounded(theme::RADIUS)
+                    .text_size(theme::TEXT_CONTROL)
+                    .text_color(theme::frost())
+                    .hover(|s| s.bg(theme::slate()))
+                    .tooltip(|_, cx| cx.new(|_| widgets::Tip("Copy full SHA")).into())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha.clone()));
+                        this.flash(format!("Copied {}", &sha[..7]), cx);
+                    }))
+                    .child(c.short()),
+            )
+            .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
+            .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
+            .when(c.is_merge(), |d| {
+                d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE · vs first parent"))
+            })
+            .when(!open, |d| {
+                d.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(theme::TEXT_LIST)
+                        .text_color(theme::bone())
+                        .child(c.summary.clone()),
+                )
+            });
+
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .bg(theme::abyss())
+            .border_b_1()
+            .border_color(theme::line())
+            .child(header)
+            .when(open, |d| {
+                d.child(
+                    div()
+                        .id("banner-body")
+                        .max_h(px(self.banner_h))
+                        .overflow_y_scroll()
+                        .overflow_x_hidden()
+                        .px(px(12.))
+                        .pb(px(10.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::MEDIUM).text_color(theme::bone()).child(c.summary.clone()))
+                        .when(!body.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .text_size(theme::TEXT_CONTROL)
+                                    .text_color(theme::body())
+                                    .children(body.lines().map(|l| {
+                                        // Blank lines keep paragraph spacing.
+                                        div().min_h(px(16.)).child(l.to_string())
+                                    })),
+                            )
+                        }),
+                )
+                // Drag handle: sets the panel's max height (like the sidebar's width handle).
+                .child(
+                    div()
+                        .id("banner-resize")
+                        .h(px(5.))
+                        .mt(px(-3.))
+                        .cursor_row_resize()
+                        .hover(|s| s.bg(theme::line_hi()))
+                        .when(self.banner_drag.is_some(), |d| d.bg(theme::frost()))
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.banner_drag = Some((ev.position.y.into(), this.banner_h));
+                                cx.notify();
+                            }),
+                        ),
+                )
+            })
     }
 
     fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -460,37 +578,6 @@ fn change_blocks(l: &Loaded) -> Vec<(usize, usize, LineKind)> {
         }
     }
     out
-}
-
-fn render_commit_banner(c: &crate::git::CommitInfo) -> impl IntoElement {
-    let body: String = c.message.lines().skip(1).skip_while(|l| l.trim().is_empty()).take(4).collect::<Vec<_>>().join("\n");
-    div()
-        .flex_none()
-        .px(px(12.))
-        .py(px(8.))
-        .bg(theme::abyss())
-        .border_b_1()
-        .border_color(theme::line())
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .flex()
-                .gap(px(8.))
-                .items_center()
-                .child(micro("Commit"))
-                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child(c.short()))
-                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
-                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
-                .when(c.is_merge(), |d| {
-                    d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE · vs first parent"))
-                }),
-        )
-        .child(div().text_size(theme::TEXT_LIST).text_color(theme::bone()).child(c.summary.clone()))
-        .when(!body.is_empty(), |d| {
-            d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::body()).child(body))
-        })
 }
 
 fn notice(title: &str, detail: &str, color: Hsla) -> Div {
