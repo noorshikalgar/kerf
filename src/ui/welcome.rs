@@ -17,25 +17,40 @@ fn icon(nerd: bool, glyph: &'static str) -> Div {
     })
 }
 
-/// A start action: icon, label, one-line explanation.
-fn action(id: &'static str, nerd: bool, glyph: &'static str, label: &'static str, sub: &'static str) -> Stateful<Div> {
+/// A primary start action as a card: icon, label, one-line explanation.
+fn card(id: &'static str, nerd: bool, glyph: &'static str, label: &'static str, sub: &'static str) -> Stateful<Div> {
     div()
         .id(id)
+        .w(px(200.))
+        .flex_none()
         .flex()
-        .items_start()
+        .flex_col()
         .gap(px(10.))
-        .px(px(10.))
-        .py(px(8.))
-        .mx(px(-10.))
-        .rounded(theme::RADIUS)
+        .p(px(16.))
+        .rounded(px(6.))
+        .bg(theme::abyss())
+        .border_1()
+        .border_color(theme::line_hi())
         .cursor_pointer()
-        .hover(|s| s.bg(theme::ash()))
-        .child(icon(nerd, glyph).mt(px(1.)))
+        .hover(|s| s.border_color(theme::frost()).bg(theme::crypt()))
+        .child(
+            div()
+                .w(px(32.))
+                .h(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(theme::RADIUS)
+                .bg(theme::slate())
+                .text_size(theme::TEXT_DISPLAY)
+                .text_color(theme::frost())
+                .child(if nerd { glyph } else { "›" }),
+        )
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(2.))
+                .gap(px(4.))
                 .child(
                     div()
                         .text_size(theme::TEXT_LIST)
@@ -47,185 +62,175 @@ fn action(id: &'static str, nerd: bool, glyph: &'static str, label: &'static str
         )
 }
 
+/// A quiet footer link.
+fn link(id: &'static str, label: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px(px(6.))
+        .py(px(2.))
+        .rounded(theme::RADIUS)
+        .text_size(theme::TEXT_CONTROL)
+        .text_color(theme::mute())
+        .cursor_pointer()
+        .hover(|s| s.text_color(theme::bone()).bg(theme::ash()))
+        .child(label)
+}
+
 impl Kerf {
+    /// Centered start page: brand → three primary actions → recent repositories → learn links.
     pub fn render_start_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let nerd = self.nerd();
         let recents: Vec<_> = self.persisted.recents.iter().take(MAX_RECENTS).cloned().collect();
-        let start = div()
-            .flex_1()
-            .min_w_0()
+
+        let brand = div()
             .flex()
             .flex_col()
-            .gap(px(2.))
-            .child(micro("Start").mb(px(6.)))
+            .items_center()
+            .gap(px(14.))
+            .child(super::widgets::app_icon(72.))
+            .child(div().text_size(px(30.)).font_weight(FontWeight::BOLD).text_color(theme::bone()).child("Kerf"))
             .child(
-                action("start-open", nerd, "\u{ea62}", "Open Repository…", "Compare branches, tags and commits")
+                div()
+                    .text_size(theme::TEXT_LIST)
+                    .text_color(theme::mute())
+                    .child("The cut between two branches — or any two texts."),
+            );
+
+        let actions = div()
+            .flex()
+            .justify_center()
+            .gap(px(14.))
+            .child(
+                card("start-open", nerd, "\u{ea62}", "Open Repository", "Compare branches, tags and commits")
                     .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
             )
             .child(
-                action("start-new", nerd, "\u{ea7f}", "New Diff", "Type or paste two texts, diff updates live")
+                card("start-new", nerd, "\u{ea7f}", "New Diff", "Type or paste two texts — live")
                     .on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))),
             )
             .child(
-                action("start-files", nerd, "\u{eae1}", "Compare Files…", "Diff any two files on disk")
+                card("start-files", nerd, "\u{eae1}", "Compare Files", "Any two files on disk")
                     .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
-            )
-            .child(micro("Learn").mt(px(20.)).mb(px(6.)))
-            .child(
-                action(
-                    "learn-keys",
-                    nerd,
-                    "\u{ea65}",
-                    "Keyboard Shortcuts",
-                    "Everything Kerf can do from the keyboard",
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.shortcuts_open = true;
-                    cx.notify();
-                })),
-            )
-            .child(
-                action("learn-views", nerd, "\u{ea74}", "PR Merge vs Compare View", "Two ways to compare branches")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.info_open = true;
-                        cx.notify();
-                    })),
             );
 
-        let recent = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .child(micro("Recent").mb(px(6.)))
-            .when(recents.is_empty(), |d| {
-                d.child(
+        let recent = (!recents.is_empty()).then(|| {
+            div().w(px(628.)).flex().flex_col().child(micro("Recent").px(px(10.)).mb(px(6.))).children(
+                recents.into_iter().enumerate().map(|(i, p)| {
+                    let exists = p.exists();
+                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let path: SharedString = tilde(&p.display().to_string()).into();
+                    let (open_p, remove_p) = (p.clone(), p.clone());
                     div()
-                        .py(px(8.))
-                        .text_size(theme::TEXT_CONTROL)
-                        .text_color(theme::mute())
-                        .child("Repositories you open show up here."),
-                )
-            })
-            .children(recents.into_iter().enumerate().map(|(i, p)| {
-                let exists = p.exists();
-                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let path: SharedString = tilde(&p.display().to_string()).into();
-                let (open_p, remove_p) = (p.clone(), p.clone());
-                div()
-                    .id(("recent", i))
-                    .group("recent")
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(10.))
-                    .py(px(6.))
-                    .mx(px(-10.))
-                    .rounded(theme::RADIUS)
-                    .when(exists, |d| {
-                        d.cursor_pointer()
-                            .hover(|s| s.bg(theme::ash()))
-                            .on_click(cx.listener(move |this, _, _, cx| this.open_repo(open_p.clone(), cx)))
-                    })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(theme::TEXT_LIST)
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(if exists { theme::bone() } else { theme::mute() })
-                                    .when(!exists, |d| d.line_through())
-                                    .child(name),
-                            )
-                            .child(
-                                div()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .text_size(theme::TEXT_CONTROL)
-                                    .text_color(theme::mute())
-                                    .child(if exists { path } else { format!("{path} · missing").into() }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(("recent-remove", i))
-                            .flex_none()
-                            .w(px(22.))
-                            .h(px(22.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(theme::RADIUS)
-                            .text_color(theme::mute())
-                            .when(exists, |d| d.invisible().group_hover("recent", |s| s.visible()))
-                            .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.persisted.recents.retain(|r| r != &remove_p);
-                                this.persisted.save();
-                                cx.notify();
-                            }))
-                            .child(if nerd { "\u{ea76}" } else { "✕" }),
-                    )
-            }));
+                        .id(("recent", i))
+                        .group("recent")
+                        .h(px(34.))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .px(px(10.))
+                        .rounded(theme::RADIUS)
+                        .when(exists, |d| {
+                            d.cursor_pointer()
+                                .hover(|s| s.bg(theme::ash()))
+                                .on_click(cx.listener(move |this, _, _, cx| this.open_repo(open_p.clone(), cx)))
+                        })
+                        .child(icon(nerd, "\u{ea62}"))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::TEXT_LIST)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if exists { theme::bone() } else { theme::mute() })
+                                .when(!exists, |d| d.line_through())
+                                .child(name),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::mute())
+                                .child(if exists { path } else { format!("{path} · missing").into() }),
+                        )
+                        .child(
+                            div()
+                                .id(("recent-remove", i))
+                                .flex_none()
+                                .w(px(22.))
+                                .h(px(22.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(theme::RADIUS)
+                                .text_color(theme::mute())
+                                .when(exists, |d| d.invisible().group_hover("recent", |s| s.visible()))
+                                .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                                .cursor_pointer()
+                                .tooltip(|_, cx| cx.new(|_| super::widgets::Tip("Remove from Recent")).into())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.persisted.recents.retain(|r| r != &remove_p);
+                                    this.persisted.save();
+                                    cx.notify();
+                                }))
+                                .child(if nerd { "\u{ea76}" } else { "✕" }),
+                        )
+                }),
+            )
+        });
 
-        div()
-            .size_full()
+        let learn = div()
             .flex()
             .items_center()
-            .justify_center()
+            .gap(px(4.))
+            .child(link("learn-keys", "Keyboard Shortcuts").on_click(cx.listener(|this, _, _, cx| {
+                this.shortcuts_open = true;
+                cx.notify();
+            })))
+            .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child("·"))
+            .child(link("learn-views", "PR Merge vs Compare View").on_click(cx.listener(|this, _, _, cx| {
+                this.info_open = true;
+                cx.notify();
+            })));
+
+        div()
+            .id("start-page")
+            .size_full()
+            .overflow_y_scroll()
             .bg(theme::void())
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .py(px(40.))
             .child(
                 div()
-                    .w(px(760.))
-                    .max_w_full()
-                    .px(px(32.))
                     .flex()
                     .flex_col()
-                    .gap(px(32.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.))
-                            .child(
-                                div().flex().items_center().gap(px(16.)).child(super::widgets::app_icon(56.)).child(
-                                    div()
-                                        .text_size(px(34.))
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(theme::bone())
-                                        .child("kerf"),
-                                ),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::TEXT_LIST)
-                                    .text_color(theme::mute())
-                                    .child("The cut between two branches — or any two texts."),
-                            ),
-                    )
+                    .items_center()
+                    .gap(px(36.))
+                    .child(brand)
                     .when_some(self.repo_error.clone(), |d, e| {
                         d.child(
                             div()
-                                .px(px(10.))
+                                .w(px(628.))
+                                .px(px(12.))
                                 .py(px(8.))
                                 .rounded(theme::RADIUS)
-                                .border_l_2()
-                                .border_color(theme::del_fg())
                                 .bg(theme::del_bg())
+                                .border_1()
+                                .border_color(theme::del_emph())
                                 .text_size(theme::TEXT_CONTROL)
                                 .text_color(theme::del_fg())
                                 .child(e),
                         )
                     })
-                    .child(div().flex().gap(px(48.)).child(start).child(recent)),
+                    .child(actions)
+                    .children(recent)
+                    .child(learn),
             )
             .into_any_element()
     }
