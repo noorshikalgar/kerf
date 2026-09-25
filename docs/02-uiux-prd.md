@@ -131,6 +131,9 @@ default · hover (`bg.ash`) · active/pressed · focus-visible (1px frost ring) 
 
 ### Keyboard map (v1)
 
+Shortcuts are **not** shown inline (no key hints on fields/rows). The full map lives in one popup opened from **Shortcuts** in the status bar; tooltips may still mention a key.
+
+
 | Key | Action |
 |---|---|
 | ⌘O | Open repository |

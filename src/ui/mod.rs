@@ -4,12 +4,23 @@ mod app;
 mod diff_view;
 mod info;
 mod picker;
+mod scratch;
+mod shortcuts;
 mod scrollbar;
 mod sidebar;
 mod state;
 mod widgets;
 
 pub use app::Kerf;
+
+/// What the app opens on start.
+pub enum Launch {
+    /// Last repository, if any.
+    Default,
+    Repo(PathBuf),
+    /// `kerf a.txt b.txt` — plain diff of two files.
+    Files(PathBuf, PathBuf),
+}
 
 use gpui::{
     actions, point, px, size, App, AppContext as _, Bounds, KeyBinding, TitlebarOptions,
@@ -50,6 +61,10 @@ actions!(
         NextTab,
         PrevTab,
         ShowInfo,
+        NewDiff,
+        CompareFiles,
+        Paste,
+        ShowShortcuts,
         FocusFilter,
         PageUp,
         PageDown,
@@ -76,6 +91,10 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("ctrl-shift-tab", PrevTab, None),
         KeyBinding::new("f1", ShowInfo, None),
+        KeyBinding::new("cmd-n", NewDiff, None),
+        KeyBinding::new("cmd-shift-n", CompareFiles, None),
+        KeyBinding::new("cmd-v", Paste, None),
+        KeyBinding::new("cmd-/", ShowShortcuts, None),
         // Navigation works in both normal and text-input mode.
         KeyBinding::new("up", Up, None),
         KeyBinding::new("down", Down, None),
@@ -111,7 +130,7 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
 }
 
-pub fn open_window(cx: &mut App, path: Option<PathBuf>) {
+pub fn open_window(cx: &mut App, launch: Launch) {
     let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
     cx.open_window(
         WindowOptions {
@@ -125,7 +144,7 @@ pub fn open_window(cx: &mut App, path: Option<PathBuf>) {
             window_min_size: Some(size(px(900.), px(600.))),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| Kerf::new(path, window, cx)),
+        |window, cx| cx.new(|cx| Kerf::new(launch, window, cx)),
     )
     .expect("open window");
     cx.activate(true);

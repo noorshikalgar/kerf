@@ -10,7 +10,7 @@ use gpui::{
 };
 
 impl Kerf {
-    pub fn render_titlebar(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    pub fn render_titlebar(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let range = match (&self.base, &self.compare) {
             (Some(b), Some(c)) => format!("{} … {}", self.display_ref(b), self.display_ref(c)),
             _ => String::new(),
@@ -46,9 +46,20 @@ impl Kerf {
             .when_some(self.flash.as_ref().map(|f| f.0.clone()), |d, msg| {
                 d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child(msg))
             })
+            // Buttons swallow mouse-down so the titlebar doesn't start a window drag.
+            .child(
+                seg("tb-new", "New Diff", false, "Paste two texts and diff them  ⌘N")
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))),
+            )
+            .child(
+                seg("tb-files", "Compare Files", false, "Pick two files and diff them  ⌘⇧N")
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
+            )
     }
 
-    pub fn render_status(&mut self, _: &mut Context<Self>) -> impl IntoElement {
+    pub fn render_status(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut left: Vec<AnyElement> = Vec::new();
         if let (Some(b), Some(c)) = (&self.base, &self.compare) {
             left.push(div().child(format!("{} … {}", self.display_ref(b), self.display_ref(c))).into_any_element());
@@ -81,6 +92,20 @@ impl Kerf {
             .when_some(viewed.filter(|(_, t)| *t > 0), |d, (v, t)| d.child(format!("{v}/{t} viewed")))
             .child(if self.layout == crate::diff::Layout::Split { "split" } else { "unified" })
             .child(if self.ignore_ws { "ws: ignored" } else { "ws: shown" })
+            .child(
+                div()
+                    .id("shortcuts-link")
+                    .px(px(6.))
+                    .rounded(theme::RADIUS)
+                    .text_color(if self.shortcuts_open { theme::frost() } else { theme::body() })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.shortcuts_open = !this.shortcuts_open;
+                        cx.notify();
+                    }))
+                    .child("Shortcuts"),
+            )
     }
 
     pub fn render_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -104,7 +129,7 @@ impl Kerf {
     fn render_repo_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let has_repo = self.repo_path.is_some();
         let name = if has_repo { self.repo_name.clone() } else { "No Repository".into() };
-        let path = self.repo_path.as_ref().map(|p| tilde(&p.display().to_string())).unwrap_or_default();
+        let path = self.repo_path.as_ref().map(|p| super::scratch::tilde(&p.display().to_string())).unwrap_or_default();
         let head = self.refs.iter().find(|r| r.is_head).map(|r| r.name.clone());
         let nerd = self.nerd();
         div()
@@ -145,8 +170,7 @@ impl Kerf {
                                     .text_color(if has_repo { theme::bone() } else { theme::body() })
                                     .child(name),
                             )
-                            .when(self.repo_loading, |d| d.child(widgets::spinner()))
-                            .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("⌘O")),
+                            .when(self.repo_loading, |d| d.child(widgets::spinner())),
                     )
                     .when(has_repo, |d| {
                         d.child(
@@ -208,9 +232,9 @@ impl Kerf {
 
     /// Two-line picker field: label + shortcut on top, icon + ref (+ subject for commits) + SHA below.
     fn range_field(&self, which: Which, cx: &mut Context<Self>) -> impl IntoElement {
-        let (label, value, key, tip) = match which {
-            Which::Base => ("Base", self.base.clone(), "⌘1", "Pick base — branch, tag or commit  ⌘1"),
-            Which::Compare => ("Compare", self.compare.clone(), "⌘2", "Pick compare — branch, tag or commit  ⌘2"),
+        let (label, value, tip) = match which {
+            Which::Base => ("Base", self.base.clone(), "Pick base — branch, tag or commit  ⌘1"),
+            Which::Compare => ("Compare", self.compare.clone(), "Pick compare — branch, tag or commit  ⌘2"),
         };
         let open = self.picker.as_ref().is_some_and(|p| p.which == which);
         let d = value.as_deref().map(|v| self.describe(v));
@@ -236,7 +260,6 @@ impl Kerf {
                     .items_center()
                     .child(micro(label))
                     .child(div().flex_1())
-                    .child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child(key))
                     .child(widgets::chevron(true, nerd).ml(px(4.))),
             )
             .child(match d {
@@ -504,9 +527,7 @@ impl Kerf {
                         }))
                         .map(|d| {
                             if self.filter.is_empty() && !filtering {
-                                d.text_color(theme::mute()).child("filter files…").child(div().flex_1()).child(
-                                    div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("/"),
-                                )
+                                d.text_color(theme::mute()).child("Filter files…")
                             } else {
                                 d.text_color(theme::bone())
                                     .child(self.filter.clone())
@@ -778,14 +799,6 @@ fn stat_pill(text: String, color: gpui::Hsla, tip: &'static str) -> impl IntoEle
         .text_color(color)
         .tooltip(move |_, cx| cx.new(|_| widgets::Tip(tip)).into())
         .child(text)
-}
-
-/// `/Users/me/x` → `~/x`
-fn tilde(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => format!("~{}", &path[home.len()..]),
-        _ => path.to_string(),
-    }
 }
 
 fn tag_badge(text: &'static str) -> impl IntoElement {

@@ -35,8 +35,11 @@ impl Kerf {
         if !self.tabs.is_empty() {
             pane = pane.child(self.render_tab_bar(cx));
         }
+        if let Some(sc) = self.active_scratch().filter(|s| !s.ready()) {
+            return pane.child(self.render_composer(&sc, cx)).into_any_element();
+        }
         let Some(target) = target else {
-            return pane.child(self.render_welcome()).into_any_element();
+            return pane.child(self.render_welcome(cx)).into_any_element();
         };
         pane = pane.child(self.render_file_header(&target, loaded.as_ref().map(|l| &l.0), loading, cx));
         if let Some(c) = &target.commit {
@@ -145,14 +148,14 @@ impl Kerf {
                     .child(
                         div()
                             .id(("tab-close", i))
-                            .w(px(20.))
-                            .h(px(20.))
+                            .w(px(22.))
+                            .h(px(22.))
                             .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
                             .rounded(theme::RADIUS)
-                            .text_size(theme::TEXT_LIST)
+                            .text_size(if nerd { theme::TEXT_CODE } else { theme::TEXT_LIST })
                             .text_color(theme::mute())
                             .when(!active, |d| d.invisible().group_hover("tab", |s| s.visible()))
                             .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
@@ -160,27 +163,37 @@ impl Kerf {
                                 cx.stop_propagation();
                                 this.close_tab(i, cx);
                             }))
-                            .child("×"),
+                            .child(if nerd { "\u{ea76}" } else { "✕" }),
                     )
             }))
     }
 
-    fn render_welcome(&self) -> impl IntoElement {
-        let hint = |k: &'static str, v: &'static str| {
-            div()
-                .flex()
-                .gap(px(12.))
-                .child(div().w(px(80.)).text_color(theme::frost()).child(k))
-                .child(div().text_color(theme::body()).child(v))
-        };
+    fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (title, sub) = if self.repo_path.is_none() {
-            ("Open a repository", "Pick any local clone. Kerf is read-only.")
+            ("Open a repository", "Pick any local clone — Kerf is read-only. Or diff any two texts or files.")
         } else if self.range_data().is_some_and(|d| d.cmp.identical()) {
             ("Identical", "Base and compare point at the same commit.")
         } else if self.range_data().is_some_and(|d| d.changes.is_empty()) {
-            ("No file changes", "The trees are identical in this range mode.")
+            ("No file changes", "The trees are identical in this view.")
         } else {
-            ("Select a file", "Walk the list with ↑ ↓ — the diff follows.")
+            ("Select a file", "Pick a file on the left — the diff shows here.")
+        };
+        let action = |id: &'static str, label: &'static str, sub: &'static str| {
+            div()
+                .id(id)
+                .w(px(200.))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .p(px(12.))
+                .border_1()
+                .border_color(theme::line_hi())
+                .rounded(theme::RADIUS)
+                .bg(theme::abyss())
+                .cursor_pointer()
+                .hover(|s| s.border_color(theme::frost()).bg(theme::crypt()))
+                .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::MEDIUM).text_color(theme::bone()).child(label))
+                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(sub))
         };
         div()
             .flex_1()
@@ -189,27 +202,24 @@ impl Kerf {
             .items_center()
             .justify_center()
             .gap(px(16.))
-            .child(
-                div()
-                    .text_size(theme::TEXT_DISPLAY)
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme::bone())
-                    .child(title),
-            )
+            .child(div().text_size(theme::TEXT_DISPLAY).font_weight(FontWeight::BOLD).text_color(theme::bone()).child(title))
             .child(div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child(sub))
             .child(
                 div()
-                    .mt(px(16.))
+                    .mt(px(12.))
                     .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .text_size(theme::TEXT_LIST)
-                    .child(hint("⌘O", "open repository"))
-                    .child(hint("⌘1 ⌘2", "pick base / compare"))
-                    .child(hint("↑ ↓  ] [", "walk files"))
-                    .child(hint("n p", "next / previous hunk"))
-                    .child(hint("s  w", "split view · ignore whitespace"))
-                    .child(hint("⌘⇧C", "commits tab")),
+                    .gap(px(12.))
+                    .when(self.repo_path.is_none(), |d| {
+                        d.child(
+                            action("w-open", "Open Repository", "Compare branches & commits")
+                                .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
+                        )
+                    })
+                    .child(action("w-new", "New Diff", "Paste two texts").on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))))
+                    .child(
+                        action("w-files", "Compare Files", "Pick any two files")
+                            .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
+                    ),
             )
     }
 
@@ -221,8 +231,13 @@ impl Kerf {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let c = &target.change;
-        let path: SharedString = match (&c.old_path, c.status) {
-            (Some(old), ChangeStatus::Renamed | ChangeStatus::Copied) => format!("{old} → {}", c.path).into(),
+        let scratch = target.scratch.clone();
+        let path: SharedString = match (&scratch, &c.old_path, c.status) {
+            (Some(sc), _, _) => match (&sc.left, &sc.right) {
+                (Some(l), Some(r)) => format!("{}  ↔  {}", l.label, r.label).into(),
+                _ => sc.title().into(),
+            },
+            (None, Some(old), ChangeStatus::Renamed | ChangeStatus::Copied) => format!("{old} → {}", c.path).into(),
             _ => c.path.clone().into(),
         };
         let (add, del) = match loaded.filter(|l| l.target.key() == target.key()) {
@@ -267,6 +282,11 @@ impl Kerf {
             .child(counts(add, del))
             .when(loading, |d| d.child(widgets::spinner()))
             .child(div().w(px(8.)))
+            .when(scratch.is_some(), |d| {
+                d.child(seg("sc-edit", "Edit", false, "Back to the paste / open panes").on_click(cx.listener(|this, _, _, cx| this.edit_scratch(cx))))
+                    .child(seg("sc-swap2", "⇄ Swap", false, "Swap left and right").on_click(cx.listener(|this, _, _, cx| this.swap_scratch(cx))))
+                    .child(div().w(px(8.)))
+            })
             .child(
                 seg("unified", "Unified", !split, "Unified view  s")
                     .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Unified, cx))),

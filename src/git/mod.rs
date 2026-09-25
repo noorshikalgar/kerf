@@ -333,6 +333,63 @@ impl Repo {
             fd.body = DiffBody::Binary;
             return Ok(fd);
         }
+        let old_path = change.old_path.as_deref().unwrap_or(&change.path);
+        fill_text_diff(&mut fd, old_bytes, new_bytes, old_path, &change.path, opts)?;
+        Ok(fd)
+    }
+
+    /// Changes plus diff source for a single commit.
+    pub fn commit_changes(&self, oid: Oid) -> Result<(DiffSource, Vec<Change>)> {
+        let src = self.commit_source(oid)?;
+        Ok((src, self.changes(src)?))
+    }
+
+    pub fn object_kind(&self, oid: Oid) -> Option<ObjectType> {
+        self.repo.find_object(oid, None).ok().and_then(|o| o.kind())
+    }
+}
+
+/// Line diff of two arbitrary buffers — no repository needed (scratch / file-to-file diffs).
+/// Same engine, gating and output shape as `Repo::file_diff`.
+pub fn diff_buffers(old: &[u8], new: &[u8], old_label: &str, new_label: &str, opts: DiffOptions) -> Result<FileDiff> {
+    let mut fd = FileDiff {
+        path: new_label.to_string(),
+        body: DiffBody::Text,
+        old_size: old.len() as u64,
+        new_size: new.len() as u64,
+        total_lines: 0,
+        text: Arc::from(""),
+        lines: Vec::new(),
+        hunks: Vec::new(),
+        non_utf8: false,
+        old_no_newline: false,
+        new_no_newline: false,
+    };
+    if !opts.force && fd.old_size.max(fd.new_size) > opts.max_bytes {
+        fd.body = DiffBody::TooLarge;
+        return Ok(fd);
+    }
+    if looks_binary(old) || looks_binary(new) {
+        fd.body = DiffBody::Binary;
+        return Ok(fd);
+    }
+    fill_text_diff(&mut fd, old, new, old_label, new_label, opts)?;
+    Ok(fd)
+}
+
+/// Git's heuristic: a NUL byte in the first 8000 bytes means binary.
+pub fn looks_binary(b: &[u8]) -> bool {
+    b[..b.len().min(8000)].contains(&0)
+}
+
+fn fill_text_diff(
+    fd: &mut FileDiff,
+    old_bytes: &[u8],
+    new_bytes: &[u8],
+    old_path: &str,
+    new_path: &str,
+    opts: DiffOptions,
+) -> Result<()> {
         fd.non_utf8 = std::str::from_utf8(old_bytes).is_err() || std::str::from_utf8(new_bytes).is_err();
         fd.total_lines = bytecount_lines(if new_bytes.is_empty() { old_bytes } else { new_bytes });
 
@@ -341,12 +398,11 @@ impl Repo {
             .context_lines(opts.context_lines)
             .ignore_whitespace(opts.ignore_whitespace)
             .force_text(true);
-        let old_path = change.old_path.as_deref().unwrap_or(&change.path);
         let patch = Patch::from_buffers(
             old_bytes,
             Some(Path::new(old_path)),
             new_bytes,
-            Some(Path::new(&change.path)),
+            Some(Path::new(new_path)),
             Some(&mut gopts),
         )?;
 
@@ -400,18 +456,7 @@ impl Repo {
             });
         }
         fd.text = Arc::from(text);
-        Ok(fd)
-    }
-
-    /// Changes plus diff source for a single commit.
-    pub fn commit_changes(&self, oid: Oid) -> Result<(DiffSource, Vec<Change>)> {
-        let src = self.commit_source(oid)?;
-        Ok((src, self.changes(src)?))
-    }
-
-    pub fn object_kind(&self, oid: Oid) -> Option<ObjectType> {
-        self.repo.find_object(oid, None).ok().and_then(|o| o.kind())
-    }
+        Ok(())
 }
 
 fn summary_of(c: &git2::Commit<'_>) -> String {

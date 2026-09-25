@@ -75,6 +75,11 @@ Expert users. Optimise for speed and density, not onboarding.
 65. As a dev, I want to press `b` / `c` on a commit in the Commits tab to make it Base / Compare, so that I can narrow a review to part of a branch.
 66. As a dev, I want a commit shown in a field as `short-SHA  subject`, so that I know which point in history I'm looking at.
 
+### Plain diff, outside git (v1.1)
+67. As a dev, I want to paste two snippets into Left and Right panes and see their diff, so that I can compare config, logs or API responses without saving files.
+68. As a dev, I want to pick any two files (dialog or `kerf a b`) and diff them, so that I can compare files that aren't in a repo.
+69. As a dev, I want plain diffs to open as tabs with the same diff view (split, syntax, minimap), so that there's one tool for every diff.
+
 ### Files view (sidebar tab 1)
 20. As a dev, I want every changed file listed with its status glyph (A/M/D/R) and +/− counts, so that I can size up the change.
 21. As a dev, I want files shown as a collapsible directory tree or a flat list (toggle), so that I can scan by area or by name.

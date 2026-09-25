@@ -5,7 +5,7 @@ use super::state::Persisted;
 use super::*;
 use crate::diff::{self, Layout, Rows};
 use crate::git::{
-    short_sha, Change, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff,
+    short_sha, Change, ChangeStatus, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff,
     RangeMode, RangeSpec, RefInfo, RefKind, Repo,
 };
 use crate::highlight::{self, LineSpans};
@@ -84,11 +84,91 @@ pub struct Target {
     pub source: DiffSource,
     pub change: Change,
     pub commit: Option<CommitInfo>,
+    pub scratch: Option<Arc<Scratch>>,
 }
 
 impl Target {
     pub fn key(&self) -> String {
+        if let Some(s) = &self.scratch {
+            return format!("scratch:{}", s.id);
+        }
         format!("{:?}:{:?}:{}", self.source.old, self.source.new, self.change.path)
+    }
+
+    /// A scratch target, i.e. a plain two-buffer diff outside git.
+    pub fn scratch(scratch: Scratch) -> Self {
+        let change = scratch.change();
+        Target {
+            source: DiffSource { old: None, new: Oid::ZERO_SHA1 },
+            change,
+            commit: None,
+            scratch: Some(Arc::new(scratch)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// One side of a scratch diff: pasted text or a file's contents.
+#[derive(Clone)]
+pub struct ScratchSide {
+    /// File path (display form) or "Pasted text".
+    pub label: String,
+    pub text: Arc<[u8]>,
+}
+
+impl ScratchSide {
+    pub fn lines(&self) -> usize {
+        let n = self.text.iter().filter(|&&b| b == b'\n').count();
+        if self.text.last().is_some_and(|&b| b != b'\n') { n + 1 } else { n }
+    }
+    fn short_name(&self) -> String {
+        self.label.rsplit('/').next().unwrap_or(&self.label).to_string()
+    }
+}
+
+/// Plain diff of two buffers (pasted text or files), independent of any repository.
+#[derive(Clone)]
+pub struct Scratch {
+    pub id: u64,
+    pub left: Option<ScratchSide>,
+    pub right: Option<ScratchSide>,
+    /// Showing the composer (paste / open panes) instead of the diff.
+    pub editing: bool,
+    /// Side that receives the next paste.
+    pub focus: Side,
+}
+
+impl Scratch {
+    pub fn ready(&self) -> bool {
+        self.left.is_some() && self.right.is_some() && !self.editing
+    }
+    pub fn title(&self) -> String {
+        match (&self.left, &self.right) {
+            (Some(l), Some(r)) if l.label != "Pasted text" || r.label != "Pasted text" => {
+                format!("{} ↔ {}", l.short_name(), r.short_name())
+            }
+            _ => "Untitled Diff".into(),
+        }
+    }
+    fn change(&self) -> Change {
+        Change {
+            status: ChangeStatus::Modified,
+            path: self.title(),
+            old_path: None,
+            old_oid: None,
+            new_oid: None,
+            old_mode: 0,
+            new_mode: 0,
+            similarity: None,
+            binary: false,
+            additions: None,
+            deletions: None,
+        }
     }
 }
 
@@ -207,6 +287,8 @@ pub struct Kerf {
     /// Set by double-click / Enter so the next opened file gets a pinned tab.
     pub pin_next: bool,
     pub info_open: bool,
+    pub shortcuts_open: bool,
+    pub scratch_seq: u64,
 
     pub picker: Option<Picker>,
     pub sidebar_open: bool,
@@ -218,7 +300,7 @@ pub struct Kerf {
 }
 
 impl Kerf {
-    pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(launch: super::Launch, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let persisted = Persisted::load();
         let names = window.text_system().all_font_names();
         let font = theme::FONT_CANDIDATES
@@ -272,6 +354,8 @@ impl Kerf {
             active_tab: None,
             pin_next: false,
             info_open: false,
+            shortcuts_open: false,
+            scratch_seq: 0,
             picker: None,
             sidebar_open: true,
             resizing: false,
@@ -279,9 +363,14 @@ impl Kerf {
             flash: None,
             flash_task: None,
         };
-        let start = path.or_else(|| this.persisted.last_repo.clone());
-        if let Some(p) = start {
-            this.open_repo(p, cx);
+        match launch {
+            super::Launch::Files(a, b) => this.open_files_diff(a, b, cx),
+            super::Launch::Repo(p) => this.open_repo(p, cx),
+            super::Launch::Default => {
+                if let Some(p) = this.persisted.last_repo.clone() {
+                    this.open_repo(p, cx);
+                }
+            }
         }
         this
     }
@@ -605,7 +694,7 @@ impl Kerf {
             ListRow::File { change, .. } => {
                 if let Some(d) = self.range_data().cloned() {
                     self.show(
-                        Target { source: d.cmp.source, change: d.changes[change].clone(), commit: None },
+                        Target { source: d.cmp.source, change: d.changes[change].clone(), commit: None, scratch: None },
                         cx,
                     );
                 }
@@ -619,7 +708,7 @@ impl Kerf {
                 if let Some(exp) = &self.expanded {
                     if let (Some(src), Some(ch)) = (exp.source, exp.changes.clone()) {
                         let commit = self.find_commit(exp.oid);
-                        self.show(Target { source: src, change: ch[change].clone(), commit }, cx);
+                        self.show(Target { source: src, change: ch[change].clone(), commit, scratch: None }, cx);
                     }
                 }
             }
@@ -672,7 +761,7 @@ impl Kerf {
         let (Some(src), Some(ch)) = (exp.source, exp.changes.clone()) else { return };
         let commit = self.find_commit(exp.oid);
         if let Some(first) = ch.first() {
-            self.show(Target { source: src, change: first.clone(), commit }, cx);
+            self.show(Target { source: src, change: first.clone(), commit, scratch: None }, cx);
         } else {
             self.diff = DiffState::Empty;
         }
@@ -921,12 +1010,12 @@ impl Kerf {
         let Some(data) = self.range_data().cloned() else { return };
         let active_key = self.active_tab.and_then(|a| self.tabs.get(a)).map(|t| t.target.change.path.clone());
         self.tabs.retain_mut(|t| {
-            if t.target.commit.is_some() {
+            if t.target.commit.is_some() || t.target.scratch.is_some() {
                 return true;
             }
             match data.changes.iter().find(|c| c.path == t.target.change.path) {
                 Some(c) => {
-                    t.target = Target { source: data.cmp.source, change: c.clone(), commit: None };
+                    t.target = Target { source: data.cmp.source, change: c.clone(), commit: None, scratch: None };
                     t.cached = None;
                     true
                 }
@@ -944,7 +1033,7 @@ impl Kerf {
     /// Highlights the sidebar row for the active tab's file (Files tab only), without reopening.
     fn sync_selection_to_tab(&mut self) {
         let Some(t) = self.active_tab.and_then(|a| self.tabs.get(a)) else { return };
-        if self.tab != Tab::Files || t.target.commit.is_some() {
+        if self.tab != Tab::Files || t.target.commit.is_some() || t.target.scratch.is_some() {
             return;
         }
         let path = t.target.change.path.clone();
@@ -964,8 +1053,23 @@ impl Kerf {
         }
     }
 
+    pub fn load_diff_public(&mut self, target: Target, cx: &mut Context<Self>) {
+        self.load_diff(target, true, cx);
+    }
+
     fn load_diff(&mut self, target: Target, reset_scroll: bool, cx: &mut Context<Self>) {
-        let Some(path) = self.repo_path.clone() else { return };
+        let scratch = target.scratch.clone();
+        if scratch.as_ref().is_some_and(|s| !s.ready()) {
+            // Composer is showing; nothing to diff yet.
+            self.diff_gen += 1;
+            self.diff = DiffState::Empty;
+            cx.notify();
+            return;
+        }
+        let path = self.repo_path.clone();
+        if path.is_none() && scratch.is_none() {
+            return;
+        }
         self.diff_gen += 1;
         let generation = self.diff_gen;
         let key = target.key();
@@ -987,8 +1091,14 @@ impl Kerf {
         let change = target.change.clone();
         let task = cx.spawn(async move |this, cx| {
             let job = cx.background_executor().spawn(async move {
-                let repo = Repo::open(&path)?;
-                let fd = repo.file_diff(&change, opts)?;
+                let fd = match (&scratch, &path) {
+                    (Some(s), _) => {
+                        let (l, r) = (s.left.as_ref().unwrap(), s.right.as_ref().unwrap());
+                        crate::git::diff_buffers(&l.text, &r.text, &l.label, &r.label, opts)?
+                    }
+                    (None, Some(path)) => Repo::open(path)?.file_diff(&change, opts)?,
+                    (None, None) => anyhow::bail!("No repository"),
+                };
                 let rows = diff::build(&fd, layout);
                 let widest_row = widest(&fd, &rows);
                 let max_no = fd.lines.iter().filter_map(|l| l.old_no.max(l.new_no)).max().unwrap_or(1);
@@ -1059,7 +1169,7 @@ impl Kerf {
     }
 
     fn mark_viewed(&mut self, target: &Target) {
-        if target.commit.is_none() {
+        if target.commit.is_none() && target.scratch.is_none() {
             self.viewed.insert(target.change.path.clone());
         }
     }
@@ -1205,8 +1315,9 @@ impl Kerf {
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
-        if self.info_open {
+        if self.info_open || self.shortcuts_open {
             self.info_open = false;
+            self.shortcuts_open = false;
             cx.notify();
             return;
         }
@@ -1394,6 +1505,13 @@ impl Render for Kerf {
             }))
             .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle_tab(true, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| this.cycle_tab(false, cx)))
+            .on_action(cx.listener(|this, _: &NewDiff, _, cx| this.new_scratch(cx)))
+            .on_action(cx.listener(|this, _: &CompareFiles, _, cx| this.prompt_compare_files(cx)))
+            .on_action(cx.listener(|this, _: &Paste, _, cx| this.paste(cx)))
+            .on_action(cx.listener(|this, _: &ShowShortcuts, _, cx| {
+                this.shortcuts_open = !this.shortcuts_open;
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ShowInfo, _, cx| {
                 this.info_open = !this.info_open;
                 cx.notify();
@@ -1506,6 +1624,7 @@ impl Render for Kerf {
             .child(self.render_status(cx))
             .children(self.render_picker(window, cx))
             .children(self.render_info(window, cx))
+            .children(self.render_shortcuts(window, cx))
     }
 }
 

@@ -340,6 +340,32 @@ fn two_commits_compare_like_branches() {
 }
 
 #[test]
+fn diff_buffers_without_repo() {
+    let d = diff_buffers(b"a\nb\nc\n", b"a\nB\nc\nd\n", "left.txt", "right.txt", DiffOptions::default()).unwrap();
+    assert!(matches!(d.body, DiffBody::Text));
+    assert_eq!((d.additions(), d.deletions()), (2, 1));
+    assert_eq!(d.path, "right.txt");
+    let same = diff_buffers(b"x\n", b"x\n", "l", "r", DiffOptions::default()).unwrap();
+    assert!(same.lines.is_empty());
+}
+
+#[test]
+fn diff_buffers_detects_binary_and_size_gate() {
+    let bin = diff_buffers(b"a\0b", b"a\0c", "l", "r", DiffOptions::default()).unwrap();
+    assert!(matches!(bin.body, DiffBody::Binary));
+    let opts = DiffOptions { max_bytes: 4, ..Default::default() };
+    assert!(matches!(diff_buffers(b"hello world", b"x", "l", "r", opts).unwrap().body, DiffBody::TooLarge));
+    let forced = diff_buffers(b"hello world\n", b"x\n", "l", "r", DiffOptions { force: true, ..opts }).unwrap();
+    assert_eq!(forced.additions(), 1);
+}
+
+#[test]
+fn diff_buffers_one_side_empty() {
+    let d = diff_buffers(b"", b"only\nright\n", "l", "r", DiffOptions::default()).unwrap();
+    assert_eq!((d.additions(), d.deletions()), (2, 0));
+}
+
+#[test]
 fn hunk_context_is_extracted() {
     assert_eq!(hunk_context("@@ -1,3 +1,4 @@ fn main() {\n"), "fn main() {");
     assert_eq!(hunk_context("@@ -1 +1 @@\n"), "");
