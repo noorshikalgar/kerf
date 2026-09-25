@@ -9,7 +9,7 @@ use crate::highlight::Syn;
 use crate::theme;
 use gpui::{
     div, prelude::*, px, relative, uniform_list, AnyElement, Context, Div, FontStyle, FontWeight,
-    HighlightStyle, Hsla, ListHorizontalSizingBehavior, SharedString, StyledText,
+    HighlightStyle, Hsla, SharedString, StyledText,
     Window,
 };
 use std::ops::Range;
@@ -29,15 +29,27 @@ impl Kerf {
         w
     }
 
-    /// Split view: width of each half. Grows past the viewport (→ horizontal scroll) to fit
-    /// the longest line, unless wrapping.
-    fn split_half_width(&self, l: &Loaded, window: &Window) -> f32 {
-        let view = (self.pane_width(window) - 1.) / 2.;
-        if self.wrap {
-            return view;
-        }
+    /// Column geometry for this frame: split half widths (from the draggable divider) and the
+    /// shared horizontal text offset, clamped to what the longest line needs.
+    fn geometry(&mut self, l: &Loaded, window: &Window) -> Geo {
+        let area = self.pane_width(window);
+        let split = self.layout == Layout::Split && l.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
         let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
-        view.max(gutter + CHAR_W * 2. + l.widest_chars as f32 * CHAR_W + 24.)
+        let sign_w = CHAR_W * 2. + 6.;
+        let halves = split.then(|| {
+            let lw = ((area - 1.) * self.split_ratio).round();
+            (lw, area - 1. - lw)
+        });
+        let visible = match halves {
+            Some((lw, rw)) => lw.min(rw) - gutter - sign_w,
+            None => area - gutter * 2. - sign_w,
+        }
+        .max(40.);
+        let content = l.widest_chars as f32 * CHAR_W + 40.;
+        self.hscroll_max = if self.wrap { 0. } else { (content - visible).max(0.) };
+        self.hscroll = self.hscroll.clamp(0., self.hscroll_max);
+        self.hbar = (area, (visible / content.max(visible) * area).clamp(24., area));
+        Geo { split: halves, hscroll: self.hscroll }
     }
 
     /// Soft-wrap layout for the loaded diff at the current pane width (cached per rows + width).
@@ -108,12 +120,12 @@ impl Kerf {
                         .when(stale && dim, |d| d.opacity(0.5))
                         .child({
                             let wrapped = self.wrapped_for(&l, window);
-                            let half_w = self.split_half_width(&l, window);
+                            let geo = self.geometry(&l, window);
                             if let Some(row) = self.pending_top_row.take() {
                                 let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
                                 self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
                             }
-                            self.render_body(&l, wrapped, half_w, cx)
+                            self.render_body(&l, wrapped, geo, cx)
                         }),
                 )
                 .into_any_element()
@@ -472,7 +484,7 @@ impl Kerf {
             )
     }
 
-    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, half_w: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, geo: Geo, cx: &mut Context<Self>) -> AnyElement {
         let fd = &l.fd;
         match &fd.body {
             DiffBody::Binary => {
@@ -538,35 +550,30 @@ impl Kerf {
                     .map(|ix| match &wrap {
                         Some(w) => {
                             let (row, seg) = w.map[ix];
-                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), split.then_some(half_w), cx)
+                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), geo, cx)
                         }
-                        None => render_row(&loaded, ix, ix, None, split.then_some(half_w), cx),
+                        None => render_row(&loaded, ix, ix, None, geo, cx),
                     })
                     .collect::<Vec<_>>()
             }),
         )
         .track_scroll(self.diff_scroll.clone())
-        .size_full()
-        .when(wrapped.is_none(), |u| {
-            // Rows wider than the pane scroll horizontally (split rows have a fixed width).
-            u.with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-                .with_width_from_item(if split { Some(0) } else { l.widest_row })
-        });
+        .size_full();
         // Full-height columns behind the rows so gutters and the divider run to the bottom.
-        let scroll_x = -f32::from(self.diff_scroll.0.borrow().base_handle.offset().x);
+        let half_w = geo.split.map(|(lw, _)| lw).unwrap_or(0.);
         let gutter_w = l.gutter_digits as f32 * CHAR_W + 16.;
         let strip = |x: f32, w: f32| {
             div().absolute().top_0().bottom_0().left(px(x)).w(px(w)).bg(theme::abyss()).border_r_1().border_color(theme::line())
         };
-        let underlay = if split {
+        let underlay = if geo.split.is_some() {
             div()
                 .absolute()
                 .size_full()
-                .child(strip(-scroll_x, gutter_w))
-                .child(div().absolute().top_0().bottom_0().left(px(half_w - scroll_x)).w(px(1.)).bg(theme::line_hi()))
-                .child(strip(half_w + 1. - scroll_x, gutter_w))
+                .child(strip(0., gutter_w))
+                .child(div().absolute().top_0().bottom_0().left(px(half_w)).w(px(1.)).bg(theme::line_hi()))
+                .child(strip(half_w + 1., gutter_w))
         } else {
-            div().absolute().size_full().child(strip(-scroll_x, gutter_w * 2.))
+            div().absolute().size_full().child(strip(0., gutter_w * 2.))
         };
 
         let mut foot: Vec<AnyElement> = Vec::new();
@@ -601,12 +608,96 @@ impl Kerf {
                     .min_h_0()
                     .flex()
                     .flex_row()
-                    .child(div().flex_1().min_w_0().h_full().relative().overflow_hidden().child(underlay).child(list))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .relative()
+                                    .overflow_hidden()
+                                    // Area bounds, for divider / bottom scrollbar drags.
+                                    .child({
+                                        let cell = self.diff_area.clone();
+                                        gpui::canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().size_full()
+                                    })
+                                    .child(underlay)
+                                    .child(list)
+                                    .when_some(geo.split, |d, (lw, _)| d.child(self.render_divider(lw, cx))),
+                            )
+                            .when(self.hscroll_max > 0., |d| d.child(self.render_hbar(cx))),
+                    )
                     .child(self.render_minimap(l, wrapped.as_deref(), cx))
                     .child(self.render_scrollbar(Bar::Diff, cx)),
             )
             .children(foot)
             .into_any_element()
+    }
+
+    /// Split divider: drag to resize the halves (remembered).
+    fn render_divider(&self, left_w: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("split-divider")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(left_w - 3.))
+            .w(px(7.))
+            .cursor_col_resize()
+            .flex()
+            .justify_center()
+            .child(div().w(px(if self.split_drag { 2. } else { 1. })).h_full().bg(if self.split_drag { theme::frost() } else { gpui::transparent_black() }))
+            .hover(|s| s.bg(theme::line_hi().opacity(0.5)))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.split_drag = true;
+                    cx.notify();
+                }),
+            )
+    }
+
+    /// Bottom horizontal scrollbar for the diff text (gutters stay put).
+    fn render_hbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (track, thumb) = self.hbar;
+        let travel = (track - thumb).max(0.);
+        let left = if self.hscroll_max > 0. { self.hscroll / self.hscroll_max * travel } else { 0. };
+        let active = self.hbar_drag.is_some();
+        div()
+            .id("hbar")
+            .h(px(12.))
+            .flex_none()
+            .relative()
+            .bg(theme::abyss())
+            .border_t_1()
+            .border_color(theme::line())
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    let x: f32 = (ev.position.x - this.diff_area.get().origin.x).into();
+                    let grab = if x >= left && x <= left + thumb { x - left } else { thumb / 2. };
+                    this.hbar_drag = Some(grab);
+                    this.drag_hbar_to(ev.position.x.into(), cx);
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(2.))
+                    .bottom(px(2.))
+                    .left(px(left))
+                    .w(px(thumb))
+                    .rounded(px(4.))
+                    .bg(if active { theme::thumb_active() } else { theme::thumb() })
+                    .hover(|s| s.bg(theme::thumb_hover())),
+            )
     }
 
     /// Minimap column: consecutive changed rows merge into one block, coloured by content.
@@ -806,15 +897,26 @@ fn sign(kind: LineKind) -> Div {
 }
 
 /// `vis` = visual row (element id), `ix` = logical row, `seg` = wrapped chunk to draw.
-/// `half_w`: split view half width (fixed so rows scroll horizontally together).
+/// `geo`: split half widths and the shared horizontal text offset.
 fn render_row(
     l: &Arc<Loaded>,
     vis: usize,
     ix: usize,
     seg: Option<(usize, usize)>,
-    half_w: Option<f32>,
+    geo: Geo,
     cx: &mut Context<Kerf>,
 ) -> AnyElement {
+    // Text scrolls horizontally inside its column; gutters stay fixed.
+    let scrolled = |t: StyledText| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .items_center()
+            .overflow_hidden()
+            .child(div().flex_none().ml(px(-geo.hscroll)).pr(px(24.)).child(t))
+    };
     let first = seg.map(|(s, _)| s == 0).unwrap_or(true);
     let row_base = || {
         div()
@@ -872,12 +974,14 @@ fn render_row(
                 .child(gutter(line.old_no.filter(|_| first), l.gutter_digits, line.kind))
                 .child(gutter(line.new_no.filter(|_| first), l.gutter_digits, line.kind).border_r_1().border_color(theme::line()))
                 .child(if first { sign(line.kind) } else { sign(LineKind::Context) })
-                .child(div().pr(px(24.)).child(line_text(l, *idx, emph, seg)))
+                .child(scrolled(line_text(l, *idx, emph, seg)))
+                .on_scroll_wheel(cx.listener(Kerf::on_diff_wheel))
                 .into_any_element()
         }
         Row::Pair { left, right } => {
+            let (lw, rw) = geo.split.unwrap_or((400., 400.));
             let half = |cell: &Option<diff::Cell>, old: bool| {
-                let base = div().w(px(half_w.unwrap_or(400.))).flex_none().h_full().flex().items_center().overflow_hidden();
+                let base = div().w(px(if old { lw } else { rw })).flex_none().h_full().flex().items_center().overflow_hidden();
                 match cell {
                     None => base.bg(theme::abyss()),
                     Some(c) => {
@@ -892,7 +996,7 @@ fn render_row(
                         base.bg(line_bg(kind))
                             .child(gutter(no.filter(|_| first), l.gutter_digits, kind).border_r_1().border_color(theme::line()))
                             .child(if first { sign(kind) } else { sign(LineKind::Context) })
-                            .when(!past_end, |d| d.child(line_text(l, c.idx, &c.emph, seg)))
+                            .when(!past_end, |d| d.child(scrolled(line_text(l, c.idx, &c.emph, seg))))
                     }
                 }
             };
@@ -900,7 +1004,52 @@ fn render_row(
                 .child(half(left, true))
                 .child(div().w(px(1.)).h_full().flex_none().bg(theme::line_hi()))
                 .child(half(right, false))
+                .on_scroll_wheel(cx.listener(Kerf::on_diff_wheel))
                 .into_any_element()
+        }
+    }
+}
+
+/// Per-frame column geometry for diff rows.
+#[derive(Clone, Copy)]
+pub struct Geo {
+    /// Split view: (left, right) half widths.
+    split: Option<(f32, f32)>,
+    /// Horizontal text offset shared by all rows.
+    hscroll: f32,
+}
+
+impl Kerf {
+    /// Horizontal wheel / trackpad (or shift+wheel) scrolls the text; vertical passes to the list.
+    fn on_diff_wheel(&mut self, ev: &gpui::ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let d = ev.delta.pixel_delta(theme::ROW_CODE);
+        let (dx, dy) = (f32::from(d.x), f32::from(d.y));
+        let dx = if ev.modifiers.shift && dx == 0. { dy } else { dx };
+        if self.hscroll_max <= 0. || (dx.abs() <= dy.abs() && !ev.modifiers.shift) {
+            return;
+        }
+        self.hscroll = (self.hscroll - dx).clamp(0., self.hscroll_max);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Bottom scrollbar drag: pointer x (window) → text offset.
+    pub fn drag_hbar_to(&mut self, x: f32, cx: &mut Context<Self>) {
+        let Some(grab) = self.hbar_drag else { return };
+        let (track, thumb) = self.hbar;
+        let travel = (track - thumb).max(1.);
+        let left = x - f32::from(self.diff_area.get().origin.x) - grab;
+        self.hscroll = (left / travel).clamp(0., 1.) * self.hscroll_max;
+        cx.notify();
+    }
+
+    /// Divider drag: pointer x (window) → split ratio.
+    pub fn drag_split_to(&mut self, x: f32, cx: &mut Context<Self>) {
+        let b = self.diff_area.get();
+        let w: f32 = b.size.width.into();
+        if w > 0. {
+            self.split_ratio = ((x - f32::from(b.origin.x)) / w).clamp(0.2, 0.8);
+            cx.notify();
         }
     }
 }

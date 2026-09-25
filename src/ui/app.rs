@@ -290,6 +290,17 @@ pub struct Kerf {
     pub wrap_cache: Option<(usize, usize, Arc<crate::diff::Wrapped>)>,
     /// Logical row to scroll to once the next layout exists (after toggling wrap).
     pub pending_top_row: Option<usize>,
+    /// Horizontal text offset in diffs (gutters stay fixed), its max, and bottom bar
+    /// geometry `(track, thumb)`; active bar drag grab offset.
+    pub hscroll: f32,
+    pub hscroll_max: f32,
+    pub hbar: (f32, f32),
+    pub hbar_drag: Option<f32>,
+    /// Split view divider position (0.2–0.8 of the width) and drag state.
+    pub split_ratio: f32,
+    pub split_drag: bool,
+    /// On-screen bounds of the diff rows area.
+    pub diff_area: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     /// Commit message panel: expanded, max body height, active drag (start y, start height).
     pub banner_open: bool,
     pub banner_h: f32,
@@ -367,6 +378,13 @@ impl Kerf {
             wrap: false,
             wrap_cache: None,
             pending_top_row: None,
+            hscroll: 0.,
+            hscroll_max: 0.,
+            hbar: (0., 0.),
+            hbar_drag: None,
+            split_ratio: 0.5,
+            split_drag: false,
+            diff_area: Default::default(),
             banner_open: true,
             banner_h: BANNER_DEFAULT_H,
             banner_drag: None,
@@ -382,6 +400,7 @@ impl Kerf {
         };
         this.range_open = !this.persisted.range_collapsed;
         this.wrap = this.persisted.wrap;
+        this.split_ratio = this.persisted.split_ratio.unwrap_or(0.5).clamp(0.2, 0.8);
         this.banner_open = !this.persisted.banner_collapsed;
         this.banner_h = this.persisted.banner_h.unwrap_or(BANNER_DEFAULT_H);
         match launch {
@@ -1146,6 +1165,7 @@ impl Kerf {
                         let loaded = Arc::new(Loaded { target: target.clone(), fd, rows, hl: None, widest_row, widest_chars, gutter_digits });
                         this.diff = DiffState::Ready(loaded.clone());
                         if reset_scroll {
+                            this.hscroll = 0.;
                             this.diff_scroll.scroll_to_item(0, ScrollStrategy::Top);
                         }
                         this.mark_viewed(&target);
@@ -1627,6 +1647,18 @@ impl Render for Kerf {
                 }),
             )
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
+                if this.split_drag || this.hbar_drag.is_some() {
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.split_drag = false;
+                        this.hbar_drag = None;
+                    } else if this.split_drag {
+                        this.drag_split_to(ev.position.x.into(), cx);
+                    } else {
+                        this.drag_hbar_to(ev.position.x.into(), cx);
+                    }
+                    cx.notify();
+                    return;
+                }
                 if let Some((start_y, start_h)) = this.banner_drag {
                     if ev.pressed_button != Some(MouseButton::Left) {
                         this.banner_drag = None;
@@ -1661,6 +1693,14 @@ impl Render for Kerf {
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
                     if this.scroll_drag.take().is_some() {
+                        cx.notify();
+                    }
+                    if std::mem::take(&mut this.split_drag) {
+                        this.persisted.split_ratio = Some(this.split_ratio);
+                        this.persisted.save();
+                        cx.notify();
+                    }
+                    if this.hbar_drag.take().is_some() {
                         cx.notify();
                     }
                     if this.banner_drag.take().is_some() {
