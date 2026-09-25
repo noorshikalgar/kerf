@@ -1,7 +1,8 @@
 //! Plain diffs outside git: paste two texts or pick two files. Each is a tab ("scratch").
 
 use super::app::{Input, Kerf, Scratch, ScratchSide, Side, Target};
-use super::widgets::{micro, seg, thousands};
+use super::widgets::{seg, status_glyph, thousands};
+use crate::git::ChangeStatus;
 use crate::theme;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, PathPromptOptions, SharedString};
 use std::path::PathBuf;
@@ -208,6 +209,8 @@ impl Kerf {
     }
 
     // ───────────────────────────── composer ─────────────────────────────
+    // Same visual grammar as the git diff: file header bar, split columns divided by a
+    // hairline, hunk-header-style strip per side, gutter + code rows. No extra chrome.
 
     pub fn render_composer(&self, sc: &Scratch, cx: &mut Context<Self>) -> AnyElement {
         let both = sc.left.is_some() && sc.right.is_some();
@@ -227,15 +230,21 @@ impl Kerf {
                     .bg(theme::crypt())
                     .border_b_1()
                     .border_color(theme::line())
-                    .child(div().font_weight(FontWeight::BOLD).text_color(theme::bone()).child(sc.title()))
-                    .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("Plain diff — not tied to git"))
-                    .child(div().flex_1())
+                    .child(status_glyph(ChangeStatus::Modified))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme::bone())
+                            .child(sc.title()),
+                    )
                     .child(seg("sc-swap", "⇄ Swap", false, "Swap left and right").on_click(cx.listener(|this, _, _, cx| this.swap_scratch(cx))))
                     .when(both, |d| {
-                        d.child(
-                            seg("sc-show", "Show Diff", true, "Show the diff")
-                                .on_click(cx.listener(|this, _, _, cx| this.show_scratch_diff(cx))),
-                        )
+                        d.child(seg("sc-show", "Show Diff", true, "Show the diff").on_click(cx.listener(|this, _, _, cx| this.show_scratch_diff(cx))))
                     }),
             )
             .child(
@@ -243,9 +252,8 @@ impl Kerf {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .gap(px(1.))
-                    .bg(theme::line())
                     .child(self.render_pane(sc, Side::Left, cx))
+                    .child(div().w(px(1.)).h_full().flex_none().bg(theme::line_hi()))
                     .child(self.render_pane(sc, Side::Right, cx)),
             )
             .into_any_element()
@@ -257,7 +265,20 @@ impl Kerf {
             Side::Right => ("Right · Changed", &sc.right, "right"),
         };
         let focused = sc.focus == side;
-        let btn = |id: &str, text: &'static str, tip: &'static str| seg(SharedString::from(format!("{key}-{id}")), text, false, tip);
+        let link = |id: &str, text: &'static str| {
+            div()
+                .id(SharedString::from(format!("{key}-{id}")))
+                .px(px(6.))
+                .h(px(18.))
+                .flex()
+                .items_center()
+                .rounded(theme::RADIUS)
+                .text_size(theme::TEXT_CONTROL)
+                .text_color(theme::body())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                .child(text)
+        };
         div()
             .id(SharedString::from(format!("pane-{key}")))
             .flex_1()
@@ -271,42 +292,39 @@ impl Kerf {
                     this.update_scratch(|s| s.focus = side, cx);
                 }
             }))
+            // Side strip, styled like a hunk header row.
             .child(
                 div()
-                    .h(px(40.))
+                    .h(theme::ROW_CODE)
                     .flex_none()
                     .flex()
                     .items_center()
-                    .gap(px(6.))
-                    .px(px(12.))
-                    .bg(theme::abyss())
-                    .border_b_1()
-                    .border_color(if focused { theme::frost() } else { theme::line() })
-                    .child(micro(label).text_color(if focused { theme::frost() } else { theme::mute() }))
-                    .when_some(content.as_ref(), |d, c| {
-                        d.child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .text_size(theme::TEXT_CONTROL)
-                                .text_color(theme::body())
-                                .child(format!("{} · {} lines", c.label, thousands(c.lines() as u64))),
-                        )
-                    })
-                    .when(content.is_none(), |d| d.child(div().flex_1()))
-                    .child(btn("paste", "Paste", "Paste clipboard into this side").on_click(cx.listener(move |this, _, _, cx| {
+                    .gap(px(8.))
+                    .pl(px(12.))
+                    .pr(px(6.))
+                    .bg(theme::crypt())
+                    .text_size(theme::TEXT_CONTROL)
+                    .child(div().flex_none().text_color(if focused { theme::frost() } else { theme::mute() }).child(label))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_color(theme::body())
+                            .when_some(content.as_ref(), |d, c| d.child(format!("{} · {} lines", c.label, thousands(c.lines() as u64)))),
+                    )
+                    .child(link("paste", "Paste").on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.paste_side(side, cx);
                     })))
-                    .child(btn("open", "Open File…", "Load a file into this side").on_click(cx.listener(move |this, _, _, cx| {
+                    .child(link("open", "Open File…").on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.open_file_side(side, cx);
                     })))
                     .when(content.is_some(), |d| {
-                        d.child(btn("clear", "Clear", "Empty this side").on_click(cx.listener(move |this, _, _, cx| {
+                        d.child(link("clear", "Clear").on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.update_scratch(
                                 |s| {
@@ -325,28 +343,24 @@ impl Kerf {
                 Some(c) => preview(c).into_any_element(),
                 None => div()
                     .flex_1()
-                    .m(px(16.))
                     .flex()
                     .flex_col()
                     .items_center()
                     .justify_center()
-                    .gap(px(8.))
-                    .border_1()
-                    .border_dashed()
-                    .border_color(if focused { theme::frost() } else { theme::line_hi() })
-                    .rounded(theme::RADIUS)
+                    .gap(px(4.))
                     .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child("Paste text or open a file"))
                     .child(
                         div()
                             .text_size(theme::TEXT_CONTROL)
-                            .text_color(theme::mute())
-                            .child(if focused { "Next paste lands here" } else { "Click to paste here next" }),
+                            .text_color(if focused { theme::frost() } else { theme::mute() })
+                            .child(if focused { "Next paste lands here" } else { "Click here to paste into this side" }),
                     )
                     .into_any_element(),
             })
     }
 }
 
+/// Read-only preview using the diff row grammar: gutter + code, `ROW_CODE` rows.
 fn preview(c: &ScratchSide) -> impl IntoElement {
     let text = String::from_utf8_lossy(&c.text);
     let total = c.lines();
@@ -357,7 +371,6 @@ fn preview(c: &ScratchSide) -> impl IntoElement {
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
-        .py(px(4.))
         .text_size(theme::TEXT_CODE)
         .children(lines.into_iter().enumerate().map(move |(i, l)| {
             div()
@@ -366,17 +379,29 @@ fn preview(c: &ScratchSide) -> impl IntoElement {
                 .items_center()
                 .whitespace_nowrap()
                 .overflow_hidden()
-                .child(div().w(px(digits as f32 * 8.4 + 16.)).flex_none().pr(px(8.)).flex().justify_end().text_color(theme::mute()).child((i + 1).to_string()))
-                .child(div().text_color(theme::body()).child(l))
+                .child(
+                    div()
+                        .w(px(digits as f32 * 8.4 + 16.))
+                        .flex_none()
+                        .pr(px(8.))
+                        .flex()
+                        .justify_end()
+                        .text_color(theme::mute())
+                        .child((i + 1).to_string()),
+                )
+                .child(div().w(px(8.4 * 2.)).flex_none())
+                .child(div().text_color(theme::bone()).child(l))
         }))
         .when(total > PREVIEW_LINES, |d| {
             d.child(
                 div()
-                    .px(px(12.))
-                    .py(px(6.))
+                    .h(theme::ROW_CODE)
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .text_size(theme::TEXT_CONTROL)
                     .text_color(theme::mute())
-                    .child(format!("… {} more lines (preview only — the diff uses everything)", thousands((total - PREVIEW_LINES) as u64))),
+                    .child(format!("⋯ {} more lines — all are used in the diff", thousands((total - PREVIEW_LINES) as u64))),
             )
         })
 }
