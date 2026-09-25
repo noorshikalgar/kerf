@@ -3,6 +3,7 @@
 mod app;
 mod diff_view;
 mod picker;
+mod scrollbar;
 mod sidebar;
 mod state;
 mod widgets;

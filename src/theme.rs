@@ -45,19 +45,19 @@ pub fn syn_punct() -> Hsla { c(0x8f8a82) }
 pub fn syn_attr() -> Hsla { c(0xc9b5a0) }
 
 // Type scale
-pub const TEXT_MICRO: Pixels = px(10.);
-pub const TEXT_CONTROL: Pixels = px(11.);
-pub const TEXT_LIST: Pixels = px(12.);
-pub const TEXT_CODE: Pixels = px(13.);
-pub const TEXT_DISPLAY: Pixels = px(20.);
+pub const TEXT_MICRO: Pixels = px(11.);
+pub const TEXT_CONTROL: Pixels = px(12.);
+pub const TEXT_LIST: Pixels = px(13.);
+pub const TEXT_CODE: Pixels = px(14.);
+pub const TEXT_DISPLAY: Pixels = px(22.);
 
 // Geometry
-pub const ROW_LIST: Pixels = px(24.);
-pub const ROW_CODE: Pixels = px(20.);
-pub const HEADER_H: Pixels = px(32.);
-pub const TITLEBAR_H: Pixels = px(32.);
-pub const STATUS_H: Pixels = px(22.);
-pub const CONTROL_H: Pixels = px(22.);
+pub const ROW_LIST: Pixels = px(26.);
+pub const ROW_CODE: Pixels = px(22.);
+pub const HEADER_H: Pixels = px(36.);
+pub const TITLEBAR_H: Pixels = px(34.);
+pub const STATUS_H: Pixels = px(24.);
+pub const CONTROL_H: Pixels = px(24.);
 pub const SIDEBAR_W: f32 = 300.;
 pub const SIDEBAR_MIN: f32 = 220.;
 pub const RADIUS: Pixels = px(3.);

@@ -12,14 +12,14 @@ Mood: corpse-paint monochrome. Pure black void, bone-white type, ash greys, **on
 
 | Token | px | Line-height | Use |
 |---|---|---|---|
-| `text.micro` | 10 | 14 | UPPERCASE section labels (`BASE`, `FILES`), status bar |
-| `text.control` | 11 | 16 | Buttons, toggles, badges, counts |
-| `text.list` | 12 | 24 (row) | Sidebar rows |
-| `text.code` | 13 | 20 | Diff lines, gutters |
-| `text.title` | 13 bold | 20 | File header path |
-| `text.display` | 20 | 28 | Empty-state headline only |
+| `text.micro` | 11 | 16 | Title Case section labels (`Base`, `Files`), status bar |
+| `text.control` | 12 | 18 | Buttons, toggles, badges, counts, shortcut hints |
+| `text.list` | 13 | 26 (row) | Sidebar rows |
+| `text.code` | 14 | 22 | Diff lines, gutters |
+| `text.title` | 14 bold | 22 | File header path |
+| `text.display` | 22 | 30 | Empty-state headline only |
 
-No other sizes. Micro-labels are uppercase + 0.08em tracking — the signature. Body text is never uppercase.
+No other sizes. Section labels and tab titles are **Title Case** (`Repository`, `Base`, `Compare`, `Files`, `Commits`). Uppercase is reserved for tiny badges only (`BIN`, `GEN`, `MERGE`).
 
 ## 2. Colour tokens
 
@@ -79,7 +79,7 @@ Syntax colours sit *on top of* add/del tints; both are tuned so contrast holds (
 
 - **Scale (px):** 2 · 4 · 6 · 8 · 12 · 16 · 24 · 32. Nothing else.
 - Related items < 8 apart; groups ≥ 16 apart.
-- **Row heights:** list row 24 · diff line 20 · header 32 · titlebar 32 · status bar 22 · control 22.
+- **Row heights:** list row 26 · diff line 22 · header 36 · titlebar 34 · status bar 24 · control 24.
 - **Sidebar:** default 300, min 220, max 50% window.
 - **Corners:** 0 on structure; 3px on controls/popovers/badges only.
 - **Hairlines:** 1px `line`. No borders heavier than 1px except the 2px selection bar.
@@ -88,24 +88,24 @@ Syntax colours sit *on top of* add/del tints; both are tuned so contrast holds (
 
 ## 4. Iconography
 
-Text glyphs first (mono font renders them crisply): `▾ ▸ ⇄ ⫼ ≡ ⎵ ⋯ ↑ ↓ ✓`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
+Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `List`, `3-dot`, `2-dot`) — symbols like `⫼ ⎵ …` render too small in JetBrains Mono. Glyphs only where universally clear and legible: `▾ ▸ ⇄ ↑ ↓ ✓`. Shortcut hints use `ink.mute` at `text.control`, never `ink.faint`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
 
 ## 5. Components
 
 | Component | Spec |
 |---|---|
-| **Section label** | `text.micro`, `ink.mute`, uppercase, 8px top / 4px bottom |
+| **Section label** | `text.micro`, `ink.mute`, Title Case, 8px top / 4px bottom |
 | **List row** | 24h, 8px x-padding, `text.list` `ink.body`; hover `bg.ash`; selected `bg.slate` + 2px frost left bar + `ink.bone` |
 | **Status glyph** | 1ch wide, coloured letter A/M/D/R/C/T, `text.control` bold |
 | **Count badge** | `+42` add.fg, `−8` del.fg, `text.control`, right-aligned, tabular |
 | **Picker field** | 22h, `bg.crypt`, 1px `line.hi`, 3px radius, value `ink.bone`, chevron `ink.mute`; focus → frost border |
 | **Segmented toggle** | 22h, icon cells 24w, inactive `ink.mute`, active `bg.slate` + `ink.bone` |
-| **Tab** | `text.micro` uppercase, inactive `ink.mute`, active `ink.bone` + 1px frost underline, count in `ink.mute` |
+| **Tab** | `text.control` Title Case, inactive `ink.mute`, active `ink.bone` + 1px frost underline, count in `ink.mute` |
 | **Hunk header** | 20h, `bg.crypt`, `@@ … @@` `ink.mute`, section context `ink.body` |
 | **Gap row** | 20h, `bg.void`, centred `⋯ N unchanged lines` `ink.faint`→hover `ink.mute` |
 | **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
 | **Spinner** | 3-dot pulse in `ink.mute`, 12px |
-| **Scrollbar** | 8px, thumb `#2a2a2a`, hover `#3a3a3a`; hunk markers in add/del fg on track |
+| **Scrollbar** | 10px track, draggable thumb (min 24px) — grab or click-to-jump; wheel scroll too. Diff bar carries hunk markers in add/del fg |
 
 ## 6. Measured contrast (WCAG 2.2)
 

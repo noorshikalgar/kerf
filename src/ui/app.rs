@@ -169,6 +169,7 @@ pub struct Kerf {
     pub sidebar_open: bool,
     pub sidebar_w: f32,
     pub resizing: bool,
+    pub scroll_drag: Option<super::scrollbar::Drag>,
     pub flash: Option<(SharedString, Instant)>,
     flash_task: Option<Task<()>>,
 }
@@ -226,6 +227,7 @@ impl Kerf {
             picker: None,
             sidebar_open: true,
             resizing: false,
+            scroll_drag: None,
             flash: None,
             flash_task: None,
         };
@@ -730,6 +732,15 @@ impl Kerf {
 
     // ───────────────────────────── diff ─────────────────────────────
 
+    /// The diff currently on screen (ready, or the previous one while loading).
+    pub fn loaded(&self) -> Option<&Arc<Loaded>> {
+        match &self.diff {
+            DiffState::Ready(l) => Some(l),
+            DiffState::Loading { prev, .. } => prev.as_ref(),
+            _ => None,
+        }
+    }
+
     pub fn current_target(&self) -> Option<&Target> {
         match &self.diff {
             DiffState::Empty => None,
@@ -1167,6 +1178,15 @@ impl Render for Kerf {
                 }
             }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                if this.scroll_drag.is_some() {
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.scroll_drag = None;
+                        cx.notify();
+                    } else {
+                        this.drag_scroll_to(ev.position.y.into(), cx);
+                    }
+                    return;
+                }
                 if this.resizing {
                     if ev.pressed_button != Some(MouseButton::Left) {
                         this.resizing = false;
@@ -1180,6 +1200,9 @@ impl Render for Kerf {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                    if this.scroll_drag.take().is_some() {
+                        cx.notify();
+                    }
                     if this.resizing {
                         this.resizing = false;
                         this.persisted.sidebar_w = Some(this.sidebar_w);

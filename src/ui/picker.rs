@@ -14,8 +14,8 @@ impl Kerf {
         let matches = self.picker_matches();
         let selected = p.selected.min(matches.len().saturating_sub(1));
         let title = match p.which {
-            Which::Base => "Base — compare against",
-            Which::Compare => "Compare — changes to see",
+            Which::Base => "Base — Compare Against",
+            Which::Compare => "Compare — Changes To See",
         };
         let current = match p.which {
             Which::Base => self.base.clone(),
@@ -34,8 +34,8 @@ impl Kerf {
                 last_kind = Some(r.kind);
                 rows.push(
                     micro(match r.kind {
-                        RefKind::Local => "Local branches",
-                        RefKind::Remote => "Remote branches",
+                        RefKind::Local => "Local Branches",
+                        RefKind::Remote => "Remote Branches",
                         RefKind::Tag => "Tags",
                     })
                     .px(px(10.))
@@ -88,7 +88,7 @@ impl Kerf {
                     )
                     .when(is_current, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("CURRENT")))
                     .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(short_sha(r.target)))
-                    .child(div().w(px(32.)).flex_none().flex().justify_end().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child(age(r.time)))
+                    .child(div().w(px(40.)).flex_none().flex().justify_end().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(r.time)))
                     .into_any_element(),
             );
         }
@@ -164,8 +164,8 @@ impl Kerf {
                                 .py(px(4.))
                                 .border_t_1()
                                 .border_color(theme::line())
-                                .text_size(theme::TEXT_MICRO)
-                                .text_color(theme::faint())
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::mute())
                                 .child("↑↓ move")
                                 .child("↵ pick")
                                 .child("esc close")

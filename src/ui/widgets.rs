@@ -4,12 +4,12 @@ use crate::git::ChangeStatus;
 use crate::theme;
 use gpui::{div, prelude::*, px, Div, Hsla, SharedString, Stateful};
 
-/// Uppercase micro-label: `BASE`, `FILES`.
+/// Title Case section label: `Base`, `Repository`.
 pub fn micro(text: impl Into<SharedString>) -> Div {
     div()
         .text_size(theme::TEXT_MICRO)
         .text_color(theme::mute())
-        .child(text.into().to_uppercase())
+        .child(text.into())
 }
 
 pub fn status_color(s: ChangeStatus) -> Hsla {
@@ -47,8 +47,8 @@ pub fn seg(id: impl Into<SharedString>, label: &'static str, active: bool, toolt
     div()
         .id(gpui::ElementId::Name(id.into()))
         .h(theme::CONTROL_H)
-        .min_w(px(24.))
-        .px(px(6.))
+        .min_w(px(28.))
+        .px(px(8.))
         .flex()
         .items_center()
         .justify_center()
@@ -81,7 +81,7 @@ impl Render for Tip {
 }
 
 pub fn spinner() -> Div {
-    div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("•••")
+    div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child("•••")
 }
 
 /// "3d", "5h", "just now"

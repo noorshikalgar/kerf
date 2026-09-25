@@ -136,13 +136,13 @@ impl Kerf {
                             .child(name),
                     )
                     .when(self.repo_loading, |d| d.child(widgets::spinner()))
-                    .child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("⌘O")),
+                    .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("⌘O")),
             )
             .when(!path.is_empty(), |d| {
                 d.child(
                     div()
                         .text_size(theme::TEXT_MICRO)
-                        .text_color(theme::faint())
+                        .text_color(theme::mute())
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
@@ -197,7 +197,7 @@ impl Kerf {
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(micro(label).w(px(52.)).flex_none())
+                .child(micro(label).w(px(64.)).flex_none())
                 .child(
                     div()
                         .id(label)
@@ -226,7 +226,7 @@ impl Kerf {
                                 .text_color(if value.is_some() { theme::bone() } else { theme::mute() })
                                 .child(value.unwrap_or_else(|| "pick a branch…".into())),
                         )
-                        .child(div().text_size(theme::TEXT_MICRO).text_color(theme::faint()).child(key))
+                        .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(key))
                         .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("▾")),
                 )
         };
@@ -241,8 +241,8 @@ impl Kerf {
             .border_color(theme::line())
             .child(field(self, Which::Base, cx))
             .child(
-                div().flex().pl(px(60.)).child(
-                    seg("swap", "⇄ swap", false, "Swap base and compare  ⌘⇧S")
+                div().flex().pl(px(72.)).child(
+                    seg("swap", "⇄ Swap", false, "Swap base and compare  ⌘⇧S")
                         .on_click(cx.listener(|this, _, _, cx| this.swap(cx))),
                 ),
             )
@@ -254,7 +254,7 @@ impl Kerf {
                     .items_center()
                     .gap(px(4.))
                     .child(
-                        seg("3dot", "…", self.mode == RangeMode::ThreeDot && !unrelated, "Three-dot: changes introduced by compare  ⌘⇧M")
+                        seg("3dot", "3-dot", self.mode == RangeMode::ThreeDot && !unrelated, "Three-dot: changes introduced by compare  ⌘⇧M")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if this.mode != RangeMode::ThreeDot {
                                     this.toggle_mode(cx)
@@ -262,7 +262,7 @@ impl Kerf {
                             })),
                     )
                     .child(
-                        seg("2dot", "..", self.mode == RangeMode::TwoDot || unrelated, "Two-dot: tip-to-tip tree difference  ⌘⇧M")
+                        seg("2dot", "2-dot", self.mode == RangeMode::TwoDot || unrelated, "Two-dot: tip-to-tip tree difference  ⌘⇧M")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if this.mode != RangeMode::TwoDot {
                                     this.toggle_mode(cx)
@@ -329,11 +329,11 @@ impl Kerf {
                 .on_click(cx.listener(move |this, _, _, cx| this.set_tab(t, cx)))
                 .child(
                     div()
-                        .text_size(theme::TEXT_MICRO)
+                        .text_size(theme::TEXT_CONTROL)
                         .text_color(if active { theme::bone() } else { theme::mute() })
                         .child(label),
                 )
-                .child(div().text_size(theme::TEXT_MICRO).text_color(theme::faint()).child(widgets::thousands(n as u64)))
+                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(widgets::thousands(n as u64)))
         };
         let filtering = self.input == Input::Filter;
         div()
@@ -346,8 +346,8 @@ impl Kerf {
                     .items_end()
                     .gap(px(12.))
                     .px(px(12.))
-                    .child(tab(self, Tab::Files, "FILES", files, cx))
-                    .child(tab(self, Tab::Commits, "COMMITS", commits, cx))
+                    .child(tab(self, Tab::Files, "Files", files, cx))
+                    .child(tab(self, Tab::Commits, "Commits", commits, cx))
                     .child(div().flex_1())
                     .when(self.tab == Tab::Files, |d| {
                         d.child(
@@ -355,7 +355,7 @@ impl Kerf {
                                 .flex()
                                 .pb(px(3.))
                                 .child(
-                                    seg("tree", "⊟", self.tree, "Tree view  t")
+                                    seg("tree", "Tree", self.tree, "Tree view  t")
                                         .on_click(cx.listener(|this, _, w, cx| {
                                             if !this.tree {
                                                 w.dispatch_action(Box::new(super::ToggleTree), cx);
@@ -363,7 +363,7 @@ impl Kerf {
                                         })),
                                 )
                                 .child(
-                                    seg("flat", "≣", !self.tree, "Flat list  t")
+                                    seg("flat", "List", !self.tree, "Flat list  t")
                                         .on_click(cx.listener(|this, _, w, cx| {
                                             if this.tree {
                                                 w.dispatch_action(Box::new(super::ToggleTree), cx);
@@ -396,7 +396,7 @@ impl Kerf {
                         .map(|d| {
                             if self.filter.is_empty() && !filtering {
                                 d.text_color(theme::mute()).child("filter files…").child(div().flex_1()).child(
-                                    div().text_size(theme::TEXT_MICRO).text_color(theme::faint()).child("/"),
+                                    div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("/"),
                                 )
                             } else {
                                 d.text_color(theme::bone())
@@ -435,16 +435,23 @@ impl Kerf {
                 .into_any_element();
         }
         let count = self.rows.len();
-        uniform_list(
-            "list",
-            count,
-            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
-            }),
-        )
-        .track_scroll(self.list_scroll.clone())
-        .flex_1()
-        .into_any_element()
+        div()
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .child(
+                uniform_list(
+                    "list",
+                    count,
+                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                        range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
+                    }),
+                )
+                .track_scroll(self.list_scroll.clone())
+                .size_full(),
+            )
+            .child(self.render_scrollbar(super::scrollbar::Bar::List, Vec::new(), cx))
+            .into_any_element()
     }
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -525,9 +532,9 @@ impl Kerf {
                             .child(label),
                     )
                     .when(c.binary, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("BIN")))
-                    .when(c.is_generated(), |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::faint()).child("GEN")))
+                    .when(c.is_generated(), |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("GEN")))
                     .child(counts(c.additions.map(u64::from), c.deletions.map(u64::from)))
-                    .when(viewed, |d| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child("✓")))
+                    .when(viewed, |d| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("✓")))
                     .into_any_element()
             }
             ListRow::Group { group, count, open } => base
@@ -536,8 +543,8 @@ impl Kerf {
                 .text_color(theme::mute())
                 .child(div().w(px(10.)).child(if *open { "▾" } else { "▸" }))
                 .child(match group {
-                    Group::Ahead => "AHEAD · IN COMPARE, NOT BASE",
-                    Group::Behind => "BEHIND · IN BASE, NOT COMPARE",
+                    Group::Ahead => "Ahead · In Compare, Not Base",
+                    Group::Behind => "Behind · In Base, Not Compare",
                 })
                 .child(div().flex_1())
                 .child(div().text_color(match group {
@@ -553,7 +560,7 @@ impl Kerf {
                     .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.short()))
                     .when(c.is_merge(), |d| d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE")))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c.summary.clone()))
-                    .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child(age(c.time)))
+                    .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
                     .into_any_element()
             }
             ListRow::CommitFile { change } => {

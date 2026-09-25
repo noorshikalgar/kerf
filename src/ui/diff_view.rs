@@ -1,6 +1,7 @@
 //! Diff pane: sticky file header, commit banner, and the virtualized diff body.
 
 use super::app::{DiffState, Kerf, Loaded, Target};
+use super::scrollbar::Bar;
 use super::widgets::{self, age, bytes, counts, micro, seg, status_glyph, thousands};
 use crate::diff::{self, Layout, Row};
 use crate::git::{short_sha, ChangeStatus, DiffBody, LineKind};
@@ -8,7 +9,7 @@ use crate::highlight::Syn;
 use crate::theme;
 use gpui::{
     div, prelude::*, px, relative, uniform_list, AnyElement, Context, Div, FontStyle, FontWeight,
-    HighlightStyle, Hsla, ListHorizontalSizingBehavior, ScrollStrategy, SharedString, StyledText,
+    HighlightStyle, Hsla, ListHorizontalSizingBehavior, SharedString, StyledText,
     Window,
 };
 use std::ops::Range;
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Monospace advance at `TEXT_CODE` (JetBrains Mono ≈ 0.6em).
-const CHAR_W: f32 = 7.8;
+const CHAR_W: f32 = 8.4;
 
 impl Kerf {
     pub fn render_diff_pane(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -163,15 +164,15 @@ impl Kerf {
             .when(loading, |d| d.child(widgets::spinner()))
             .child(div().w(px(8.)))
             .child(
-                seg("unified", "≡", !split, "Unified view  s")
+                seg("unified", "Unified", !split, "Unified view  s")
                     .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Unified, cx))),
             )
             .child(
-                seg("split", "⫼", split, "Split view  s")
+                seg("split", "Split", split, "Split view  s")
                     .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Split, cx))),
             )
             .child(
-                seg("ws", "⎵", self.ignore_ws, "Ignore whitespace  w")
+                seg("ws", "Ignore WS", self.ignore_ws, "Ignore whitespace  w")
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_ws(cx))),
             )
     }
@@ -285,31 +286,23 @@ impl Kerf {
             .into_any_element()
     }
 
-    /// Right-edge strip: hunk markers (coloured by content) + viewport thumb. Click to jump.
+    /// Right-edge scrollbar: draggable thumb over hunk markers (coloured by content).
     fn render_minimap(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> impl IntoElement {
         let total = l.rows.rows.len().max(1) as f32;
-        let state = self.diff_scroll.0.borrow();
-        let viewport: f32 = state.base_handle.bounds().size.height.into();
-        let offset: f32 = (-state.base_handle.offset().y).into();
-        drop(state);
-        let content = total * f32::from(theme::ROW_CODE);
-        let (thumb_top, thumb_h) = if content > viewport && viewport > 0. {
-            (offset / content, (viewport / content).max(0.02))
-        } else {
-            (0., 1.)
-        };
         let mut marks: Vec<AnyElement> = Vec::new();
+        let step = (total as usize / 400).max(1); // at most ~400 marks so huge files stay cheap
         for (i, row) in l.rows.rows.iter().enumerate() {
             let kind = match row {
                 Row::Line { idx, .. } => Some(l.fd.lines[*idx].kind),
-                Row::Pair { left, right } => match (left, right) {
-                    (Some(a), Some(b)) if l.fd.lines[a.idx].kind != LineKind::Context || l.fd.lines[b.idx].kind != LineKind::Context => {
-                        Some(LineKind::Added).filter(|_| l.fd.lines[b.idx].kind == LineKind::Added).or(Some(LineKind::Removed))
+                Row::Pair { left, right } => {
+                    let r = right.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                    let lk = left.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                    match (lk, r) {
+                        (_, Some(LineKind::Added)) => Some(LineKind::Added),
+                        (Some(LineKind::Removed), _) => Some(LineKind::Removed),
+                        _ => None,
                     }
-                    (Some(a), None) => Some(l.fd.lines[a.idx].kind),
-                    (None, Some(b)) => Some(l.fd.lines[b.idx].kind),
-                    _ => None,
-                },
+                }
                 _ => None,
             };
             let color = match kind {
@@ -317,8 +310,7 @@ impl Kerf {
                 Some(LineKind::Removed) => theme::del_fg(),
                 _ => continue,
             };
-            // Sample: at most ~400 marks so huge files stay cheap.
-            if total > 400. && i % (total as usize / 400).max(1) != 0 {
+            if i % step != 0 {
                 continue;
             }
             marks.push(
@@ -332,43 +324,7 @@ impl Kerf {
                     .into_any_element(),
             );
         }
-        let rows = l.rows.rows.len();
-        div()
-            .id("minimap")
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .right_0()
-            .w(px(10.))
-            .bg(theme::abyss())
-            .border_l_1()
-            .border_color(theme::line())
-            .cursor_pointer()
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
-                    let b = this.diff_scroll.0.borrow().base_handle.bounds();
-                    let y: f32 = (ev.position.y - b.origin.y).into();
-                    let h: f32 = b.size.height.into();
-                    if h > 0. && rows > 0 {
-                        let ix = ((y / h).clamp(0., 1.) * rows as f32) as usize;
-                        this.diff_scroll.scroll_to_item_strict(ix.min(rows - 1), ScrollStrategy::Center);
-                        cx.notify();
-                    }
-                }),
-            )
-            .children(marks)
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .top(relative(thumb_top.clamp(0., 1.)))
-                    .h(relative(thumb_h.min(1.)))
-                    .bg(gpui::hsla(0., 0., 1., 0.07))
-                    .border_1()
-                    .border_color(theme::line_hi()),
-            )
+        self.render_scrollbar(Bar::Diff, marks, cx)
     }
 }
 
@@ -392,7 +348,7 @@ fn render_commit_banner(c: &crate::git::CommitInfo) -> impl IntoElement {
                 .child(micro("Commit"))
                 .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child(c.short()))
                 .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
-                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child(age(c.time)))
+                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
                 .when(c.is_merge(), |d| {
                     d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE · vs first parent"))
                 }),
@@ -556,9 +512,9 @@ fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement 
         Row::Gap { hidden } => row_base()
             .justify_center()
             .text_size(theme::TEXT_CONTROL)
-            .text_color(theme::faint())
+            .text_color(theme::mute())
             .cursor_pointer()
-            .hover(|s| s.text_color(theme::mute()).bg(theme::abyss()))
+            .hover(|s| s.text_color(theme::body()).bg(theme::abyss()))
             .on_click(cx.listener(|this, _, _, cx| this.expand_context(cx)))
             .child(format!("┄┄┄  ⋯ {} unchanged lines · click to expand  ┄┄┄", thousands(*hidden as u64)))
             .into_any_element(),
