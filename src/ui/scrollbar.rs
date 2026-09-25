@@ -85,11 +85,16 @@ impl Metrics {
 pub fn metrics(handle: &UniformListScrollHandle, rows: usize, row_h: f32) -> Metrics {
     let state = handle.0.borrow();
     let b = state.base_handle.bounds();
-    let item_h = state.last_item_size.map(|s| f32::from(s.item.height)).filter(|h| *h > 0.).unwrap_or(row_h);
+    // Note: despite its name, gpui's `last_item_size.item` is the list *viewport* size and
+    // `contents` the full content size, both measured at the last layout. Prefer them.
+    let (viewport, content) = match state.last_item_size {
+        Some(s) if f32::from(s.item.height) > 0. => (f32::from(s.item.height), f32::from(s.contents.height)),
+        _ => (f32::from(b.size.height), rows as f32 * row_h),
+    };
     Metrics {
         track_top: b.origin.y.into(),
-        viewport: b.size.height.into(),
-        content: rows as f32 * item_h,
+        viewport,
+        content,
         offset: (-f32::from(state.base_handle.offset().y)).max(0.),
     }
 }

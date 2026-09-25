@@ -288,46 +288,54 @@ impl Kerf {
             .into_any_element()
     }
 
-    /// Minimap column: one tick per changed row (sampled), coloured by content.
+    /// Minimap column: consecutive changed rows merge into one block, coloured by content.
     fn render_minimap(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> AnyElement {
+        let blocks = change_blocks(l);
         let total = l.rows.rows.len().max(1) as f32;
-        let mut marks: Vec<AnyElement> = Vec::new();
-        let step = (total as usize / 400).max(1); // at most ~400 marks so huge files stay cheap
-        for (i, row) in l.rows.rows.iter().enumerate() {
-            let kind = match row {
-                Row::Line { idx, .. } => Some(l.fd.lines[*idx].kind),
-                Row::Pair { left, right } => {
-                    let r = right.as_ref().map(|c| l.fd.lines[c.idx].kind);
-                    let lk = left.as_ref().map(|c| l.fd.lines[c.idx].kind);
-                    match (lk, r) {
-                        (_, Some(LineKind::Added)) => Some(LineKind::Added),
-                        (Some(LineKind::Removed), _) => Some(LineKind::Removed),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            let color = match kind {
-                Some(LineKind::Added) => theme::add_fg(),
-                Some(LineKind::Removed) => theme::del_fg(),
-                _ => continue,
-            };
-            if i % step != 0 {
-                continue;
-            }
-            marks.push(
+        let marks = blocks
+            .into_iter()
+            .map(|(start, len, kind)| {
                 div()
                     .absolute()
-                    .left(px(3.))
-                    .right(px(3.))
-                    .top(relative(i as f32 / total))
-                    .h(px(2.))
-                    .bg(color)
-                    .into_any_element(),
-            );
-        }
+                    .left(px(4.))
+                    .right(px(4.))
+                    .top(relative(start as f32 / total))
+                    .h(relative(len as f32 / total))
+                    .min_h(px(2.))
+                    .bg(if kind == LineKind::Added { theme::add_fg() } else { theme::del_fg() })
+                    .into_any_element()
+            })
+            .collect();
         self.render_map(marks, cx)
     }
+}
+
+/// Runs of changed rows: (first row, row count, kind). Mixed pairs in split view count as Added.
+fn change_blocks(l: &Loaded) -> Vec<(usize, usize, LineKind)> {
+    let mut out: Vec<(usize, usize, LineKind)> = Vec::new();
+    for (i, row) in l.rows.rows.iter().enumerate() {
+        let kind = match row {
+            Row::Line { idx, .. } => l.fd.lines[*idx].kind,
+            Row::Pair { left, right } => {
+                let r = right.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                let lk = left.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                match (lk, r) {
+                    (_, Some(LineKind::Added)) => LineKind::Added,
+                    (Some(LineKind::Removed), _) => LineKind::Removed,
+                    _ => LineKind::Context,
+                }
+            }
+            _ => LineKind::Context,
+        };
+        if kind == LineKind::Context {
+            continue;
+        }
+        match out.last_mut() {
+            Some((s, n, k)) if *k == kind && *s + *n == i => *n += 1,
+            _ => out.push((i, 1, kind)),
+        }
+    }
+    out
 }
 
 fn render_commit_banner(c: &crate::git::CommitInfo) -> impl IntoElement {
