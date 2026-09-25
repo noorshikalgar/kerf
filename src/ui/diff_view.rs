@@ -80,9 +80,9 @@ impl Kerf {
         if !self.tabs.is_empty() {
             pane = pane.child(self.render_tab_bar(cx));
         }
-        if let Some(sc) = self.active_scratch().filter(|s| !s.ready()) {
+        if let Some(sc) = self.active_scratch() {
             self.ensure_editors(&sc, window, cx);
-            return pane.child(self.render_composer(&sc, cx)).into_any_element();
+            return pane.child(self.render_live(&sc, cx)).into_any_element();
         }
         let Some(target) = target else {
             return pane.child(self.render_welcome(cx)).into_any_element();
@@ -454,11 +454,6 @@ impl Kerf {
             .child(counts(add, del))
             .when(loading, |d| d.child(widgets::spinner()))
             .child(div().w(px(8.)))
-            .when(scratch.is_some(), |d| {
-                d.child(seg("sc-edit", "Edit", false, "Back to the paste / open panes").on_click(cx.listener(|this, _, _, cx| this.edit_scratch(cx))))
-                    .child(seg("sc-swap2", "⇄ Swap", false, "Swap left and right").on_click(cx.listener(|this, _, _, cx| this.swap_scratch(cx))))
-                    .child(div().w(px(8.)))
-            })
             .child(
                 seg("unified", "Unified", !split, "Unified view  s")
                     .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Unified, cx))),

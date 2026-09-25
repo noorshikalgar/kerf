@@ -1,6 +1,7 @@
 //! Minimal code editor view for plain diffs: virtualized rows, gutter, caret, selection,
 //! keyboard editing, clipboard, undo. Editing rules live in `crate::buffer`.
 
+use crate::align::{Aligned, RowKind, SideRow};
 use crate::buffer::{col_from_visual, visual_col, Buffer, Move, Pos};
 use crate::theme;
 use gpui::{
@@ -115,8 +116,19 @@ pub struct Editor {
     font: SharedString,
     placeholder: SharedString,
     /// Measured monospace advance at `TEXT_CODE`.
-    char_w: f32,
+    pub char_w: f32,
     dragging: bool,
+    /// Live-diff layout for this side: view rows (lines + fillers) with change marks.
+    decor: Option<std::sync::Arc<Vec<SideRow>>>,
+    row_of_line: Vec<usize>,
+    /// Left side tints changes red, right side green.
+    is_left: bool,
+    /// Rows are at least this wide, so both sides scroll horizontally in lockstep.
+    pub min_row_w: f32,
+    /// Gutter digits floor, shared with the other side so gutters line up.
+    pub min_digits: usize,
+    /// This editor's own on-screen bounds (the scroll handle may be shared with another list).
+    bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -128,16 +140,66 @@ impl Focusable for Editor {
 }
 
 impl Editor {
-    pub fn new(text: &str, font: SharedString, placeholder: &str, cx: &mut Context<Self>) -> Self {
+    /// `scroll` may be shared with the other side's editor to scroll both together.
+    pub fn new(
+        text: &str,
+        font: SharedString,
+        placeholder: &str,
+        scroll: UniformListScrollHandle,
+        is_left: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             buffer: Buffer::new(text),
             focus: cx.focus_handle(),
-            scroll: UniformListScrollHandle::new(),
+            scroll,
             font,
             placeholder: placeholder.to_string().into(),
             char_w: 8.4,
             dragging: false,
+            decor: None,
+            row_of_line: Vec::new(),
+            is_left,
+            min_row_w: 0.,
+            min_digits: 3,
+            bounds: Default::default(),
         }
+    }
+
+    pub fn set_left(&mut self, is_left: bool) {
+        self.is_left = is_left;
+    }
+
+    /// Installs the aligned layout from the latest diff (or clears it).
+    pub fn set_decor(&mut self, rows: Option<std::sync::Arc<Vec<SideRow>>>, cx: &mut Context<Self>) {
+        self.row_of_line = rows.as_ref().map(|r| Aligned::row_of_line(r, self.buffer.line_count())).unwrap_or_default();
+        self.decor = rows;
+        cx.notify();
+    }
+
+    /// Rows this editor draws: aligned view rows when diffing, else buffer lines.
+    pub fn view_rows(&self) -> usize {
+        self.decor.as_ref().map(|d| d.len()).unwrap_or(self.buffer.line_count())
+    }
+
+    fn view_line(&self, view: usize) -> Option<usize> {
+        match &self.decor {
+            Some(d) => d.get(view).and_then(|r| r.line).filter(|l| *l < self.buffer.line_count()),
+            None => (view < self.buffer.line_count()).then_some(view),
+        }
+    }
+
+    fn line_view_row(&self, line: usize) -> usize {
+        if self.decor.is_some() {
+            self.row_of_line.get(line).copied().unwrap_or(line)
+        } else {
+            line
+        }
+    }
+
+    /// Longest line in chars (tabs expanded).
+    pub fn widest_chars(&self) -> usize {
+        self.buffer.lines().iter().map(|l| visual_col(l, l.chars().count(), TAB)).max().unwrap_or(0)
     }
 
     pub fn is_focused(&self, window: &Window) -> bool {
@@ -161,7 +223,7 @@ impl Editor {
     }
 
     fn gutter_w(&self) -> f32 {
-        let digits = self.buffer.line_count().to_string().len().max(3);
+        let digits = self.buffer.line_count().to_string().len().max(self.min_digits);
         digits as f32 * self.char_w + 20.
     }
 
@@ -179,10 +241,10 @@ impl Editor {
     /// Scrolls so the caret is visible, vertically and horizontally.
     fn reveal_caret(&mut self) {
         let c = self.buffer.caret();
-        self.scroll.scroll_to_item(c.row, ScrollStrategy::Top);
+        self.scroll.scroll_to_item(self.line_view_row(c.row), ScrollStrategy::Top);
         let state = self.scroll.0.borrow();
         let base = &state.base_handle;
-        let view_w: f32 = base.bounds().size.width.into();
+        let view_w: f32 = self.bounds.get().size.width.into();
         if view_w <= 0. {
             return;
         }
@@ -213,12 +275,17 @@ impl Editor {
     /// Window position → buffer position.
     fn hit(&self, p: Point<Pixels>) -> Pos {
         let state = self.scroll.0.borrow();
-        let b = state.base_handle.bounds();
+        let b = self.bounds.get();
         let off = state.base_handle.offset();
         let y: f32 = (p.y - b.origin.y - off.y).into();
-        let row = ((y / f32::from(theme::ROW_CODE)).floor().max(0.) as usize).min(self.buffer.line_count() - 1);
+        let view = ((y / f32::from(theme::ROW_CODE)).floor().max(0.) as usize).min(self.view_rows().saturating_sub(1));
+        // Filler rows map to the end of the nearest real line above them.
+        let row = (0..=view).rev().find_map(|v| self.view_line(v)).unwrap_or(0);
+        if self.view_line(view).is_none() {
+            return Pos::new(row, self.buffer.line(row).chars().count());
+        }
         let x: f32 = (p.x - b.origin.x - off.x).into();
-        let vcol = (x - self.gutter_w()) / self.char_w;
+        let vcol = (x - self.gutter_w() - 8.) / self.char_w;
         Pos::new(row, col_from_visual(self.buffer.line(row), vcol.max(0.), TAB))
     }
 
@@ -268,11 +335,43 @@ impl Editor {
         cx.stop_propagation();
     }
 
-    fn render_row(&self, ix: usize, focused: bool) -> impl IntoElement {
+    fn render_row(&self, view: usize, focused: bool) -> gpui::AnyElement {
+        let gutter_w = self.gutter_w();
+        let decor = self.decor.as_ref().and_then(|d| d.get(view));
+        let Some(ix) = self.view_line(view) else {
+            // Filler: the other side has lines here.
+            return div()
+                .id(view)
+                .h(theme::ROW_CODE)
+                .min_w(px(self.min_row_w))
+                .min_w_full()
+                .flex()
+                .child(div().w(px(gutter_w)).h_full().flex_none().bg(theme::abyss()).border_r_1().border_color(theme::line()))
+                .child(div().flex_1().h_full().bg(theme::abyss()))
+                .into_any_element();
+        };
+        let kind = decor.map(|d| d.kind).unwrap_or(RowKind::Same);
+        let (tint, emph_bg) = if self.is_left {
+            (theme::del_bg(), theme::del_emph())
+        } else {
+            (theme::add_bg(), theme::add_emph())
+        };
         let line = self.buffer.line(ix);
         let caret = self.buffer.caret();
         let is_caret_row = caret.row == ix;
         let display: String = line.replace('\t', &" ".repeat(TAB));
+        let byte = |vc: usize| display.char_indices().nth(vc).map(|(b, _)| b).unwrap_or(display.len());
+        let mut hl = Vec::new();
+        // Word-level change emphasis (raw byte ranges → display byte ranges).
+        if kind == RowKind::Changed {
+            for r in decor.map(|d| d.emph.as_slice()).unwrap_or(&[]) {
+                let (a, b) = (line[..r.start.min(line.len())].chars().count(), line[..r.end.min(line.len())].chars().count());
+                let (a, b) = (byte(visual_col(line, a, TAB)), byte(visual_col(line, b, TAB)));
+                if b > a {
+                    hl.push((a..b, HighlightStyle { background_color: Some(emph_bg), ..Default::default() }));
+                }
+            }
+        }
         // Selection within this row, as byte range of the display string.
         let sel = self.buffer.selection().and_then(|(s, e)| {
             if ix < s.row || ix > e.row {
@@ -282,9 +381,8 @@ impl Editor {
             let to = if ix == e.row { visual_col(line, e.col, TAB) } else { display.chars().count() + 1 };
             Some((from, to))
         });
-        let byte = |vc: usize| display.char_indices().nth(vc).map(|(b, _)| b).unwrap_or(display.len());
-        let mut hl = Vec::new();
         let mut text = display.clone();
+        let mut sel_hl = Vec::new();
         if let Some((from, to)) = sel {
             // Selected line breaks show as one extra highlighted space.
             if to > display.chars().count() {
@@ -292,34 +390,46 @@ impl Editor {
             }
             let (a, b) = (byte(from), if to > display.chars().count() { text.len() } else { byte(to) });
             if b > a {
-                hl.push((a..b, HighlightStyle { background_color: Some(theme::frost().opacity(0.25)), ..Default::default() }));
+                sel_hl.push((a..b, HighlightStyle { background_color: Some(theme::frost().opacity(0.25)), ..Default::default() }));
             }
         }
-        let gutter_w = self.gutter_w();
+        let hl: Vec<_> = gpui::combine_highlights(hl, sel_hl).collect();
         let caret_x = gutter_w + visual_col(line, caret.col, TAB) as f32 * self.char_w;
+        let row_bg = match kind {
+            RowKind::Changed => Some(tint),
+            _ if is_caret_row && focused => Some(theme::abyss()),
+            _ => None,
+        };
         div()
-            .id(ix)
+            .id(view)
             .h(theme::ROW_CODE)
+            .min_w(px(self.min_row_w))
             .min_w_full()
             .relative()
             .flex()
             .items_center()
             .whitespace_nowrap()
-            .when(is_caret_row && focused, |d| d.bg(theme::abyss()))
+            .when_some(row_bg, |d, bg| d.bg(bg))
             .child(
                 div()
                     .w(px(gutter_w))
+                    .h_full()
                     .flex_none()
                     .pr(px(12.))
                     .flex()
+                    .items_center()
                     .justify_end()
+                    .bg(if kind == RowKind::Changed { tint } else { theme::abyss() })
+                    .border_r_1()
+                    .border_color(theme::line())
                     .text_color(if is_caret_row && focused { theme::body() } else { theme::mute() })
                     .child((ix + 1).to_string()),
             )
-            .child(div().pr(px(40.)).text_color(theme::bone()).child(StyledText::new(SharedString::from(text)).with_highlights(hl)))
+            .child(div().pl(px(8.)).pr(px(40.)).text_color(theme::bone()).child(StyledText::new(SharedString::from(text)).with_highlights(hl)))
             .when(is_caret_row && focused, |d| {
-                d.child(div().absolute().top(px(2.)).bottom(px(2.)).left(px(caret_x)).w(px(2.)).bg(theme::frost()))
+                d.child(div().absolute().top(px(2.)).bottom(px(2.)).left(px(caret_x + 8.)).w(px(2.)).bg(theme::frost()))
             })
+            .into_any_element()
     }
 }
 
@@ -329,8 +439,8 @@ impl Render for Editor {
         if let Ok(size) = window.text_system().advance(fid, theme::TEXT_CODE, 'm') {
             self.char_w = size.width.into();
         }
-        let count = self.buffer.line_count();
-        let widest = self.buffer.widest_row();
+        let count = self.view_rows();
+        let widest = self.line_view_row(self.buffer.widest_row());
         let empty = self.buffer.is_empty();
         div()
             .id("editor")
@@ -430,6 +540,11 @@ impl Render for Editor {
             }))
             .on_action(cx.listener(|_, _: &Submit, _, cx| cx.emit(EditorEvent::Submit)))
             .on_action(cx.listener(|_, _: &Blur, _, cx| cx.emit(EditorEvent::Blur)))
+            // Records this editor's bounds each frame for hit-testing.
+            .child({
+                let cell = self.bounds.clone();
+                gpui::canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().size_full()
+            })
             .child(
                 uniform_list(
                     "editor-rows",

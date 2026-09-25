@@ -103,11 +103,11 @@ impl Kerf {
     fn bar_handle(&self, bar: Bar) -> (&UniformListScrollHandle, usize, f32) {
         match bar {
             Bar::List => (&self.list_scroll, self.rows.len(), f32::from(theme::ROW_LIST)),
-            Bar::Diff => (
-                &self.diff_scroll,
-                self.visual_len(),
-                f32::from(theme::ROW_CODE),
-            ),
+            Bar::Diff => match self.live_scroll() {
+                // Plain diff tab: the two editors' shared scroll.
+                Some((h, rows)) => (h, rows, f32::from(theme::ROW_CODE)),
+                None => (&self.diff_scroll, self.visual_len(), f32::from(theme::ROW_CODE)),
+            },
         }
     }
 

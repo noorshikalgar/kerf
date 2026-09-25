@@ -1,3 +1,4 @@
+pub mod align;
 pub mod buffer;
 pub mod diff;
 pub mod git;

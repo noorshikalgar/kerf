@@ -61,10 +61,9 @@ const GROUPS: &[Group] = &[
     (
         "Plain Diff",
         &[
-            ("⌘N", "New diff (paste two texts)"),
-            ("⌘⇧N", "Compare two files"),
+            ("⌘N", "New diff — type or paste on both sides"),
+            ("⌘⇧N", "Compare two files (editable)"),
             ("⌘V", "Paste (editor, or first empty side)"),
-            ("⌘↵", "Compare Left and Right"),
             ("⌘Z  ⌘⇧Z", "Undo / redo in editor"),
             ("⌥← ⌥→", "Move by word (⇧ selects)"),
             ("Esc", "Leave the editor"),

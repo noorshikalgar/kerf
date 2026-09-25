@@ -14,7 +14,7 @@ A fast, native, keyboard-first **Git branch diff viewer** built in Rust on [GPUI
 - Merge base, ahead / behind counts
 - **Files** tab: tree or flat, status glyphs, +/− counts, rename similarity, binary/generated badges, filter, viewed ticks
 - **Commits** tab: ahead + behind groups, expand a commit to walk its own files (merges vs first parent)
-- **Plain diff (no git)**: New Diff (⌘N) — paste two texts; Compare Files (⌘⇧N) or `kerf a.txt b.txt` — any two files. Same renderer: split/unified, syntax, minimap
+- **Plain diff (no git)** — live side-by-side diff editor (like Meld / VS Code's diff editor): New Diff (⌘N) to type or paste, Compare Files (⌘⇧N) or `kerf a.txt b.txt`. Both sides always editable; the diff updates as you type, filler rows keep matching lines aligned, one scroll moves both sides. Files are never written.
 - **Tabs**: single-click opens a preview tab (italic), double-click / ↵ keeps it; ⌘W close, ⌘⇧[ ⌘⇧] switch, middle-click close; each tab keeps its scroll
 - Diff pane: unified or split, word-level emphasis, syntax colour, hunk headers with function context, collapsed gaps (click to expand), hunk minimap
 - Big files: diffs computed off the UI thread, virtualized rendering, 20 MB gate, 10k-char line truncation, lockfiles/`*.min.*`/`dist/` collapsed by default

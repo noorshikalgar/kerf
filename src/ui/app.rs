@@ -131,25 +131,19 @@ impl ScratchSide {
     }
 }
 
-/// Plain diff of two buffers (pasted text or files), independent of any repository.
+/// Plain diff of two texts (typed, pasted or files), independent of any repository.
+/// `left` / `right` are the initial contents; while open, the live editors own the text.
 #[derive(Clone)]
 pub struct Scratch {
     pub id: u64,
     pub left: Option<ScratchSide>,
     pub right: Option<ScratchSide>,
-    /// Showing the composer (paste / open panes) instead of the diff.
-    pub editing: bool,
-    /// Side that receives the next paste.
-    pub focus: Side,
 }
 
 impl Scratch {
-    pub fn ready(&self) -> bool {
-        self.left.is_some() && self.right.is_some() && !self.editing
-    }
     pub fn title(&self) -> String {
         match (&self.left, &self.right) {
-            (Some(l), Some(r)) if l.label != "Pasted text" || r.label != "Pasted text" => {
+            (Some(l), Some(r)) => {
                 format!("{} ↔ {}", l.short_name(), r.short_name())
             }
             _ => "Untitled Diff".into(),
@@ -1086,8 +1080,8 @@ impl Kerf {
 
     fn load_diff(&mut self, target: Target, reset_scroll: bool, cx: &mut Context<Self>) {
         let scratch = target.scratch.clone();
-        if scratch.as_ref().is_some_and(|s| !s.ready()) {
-            // Composer is showing; nothing to diff yet.
+        if scratch.is_some() {
+            // Plain diffs are live editors (see scratch.rs); nothing to load here.
             self.diff_gen += 1;
             self.diff = DiffState::Empty;
             cx.notify();
@@ -1232,6 +1226,7 @@ impl Kerf {
         self.ignore_ws = !self.ignore_ws;
         self.persisted.ignore_ws = self.ignore_ws;
         self.persisted.save();
+        self.recompute_all_live(cx);
         self.reload_diff(cx);
         cx.notify();
     }
