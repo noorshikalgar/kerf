@@ -83,8 +83,34 @@ fn normalize(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn is_empty_doc(lines: &[String]) -> bool {
+    lines.len() == 1 && lines[0].is_empty()
+}
+
 /// Aligns two texts line by line. `ignore_ws` compares lines with whitespace collapsed.
+///
+/// An empty side (a single blank line) counts as having no lines, so it never anchors on
+/// some blank line of the other side; its one editable line is pinned to the top row.
 pub fn align(old: &[String], new: &[String], ignore_ws: bool) -> Aligned {
+    let (old_empty, new_empty) = (is_empty_doc(old), is_empty_doc(new));
+    if old_empty || new_empty {
+        let mut a = align_lines(if old_empty { &[] } else { old }, if new_empty { &[] } else { new }, ignore_ws);
+        if a.rows() == 0 {
+            a.left.push(filler());
+            a.right.push(filler());
+        }
+        if old_empty {
+            a.left[0] = same(0);
+        }
+        if new_empty {
+            a.right[0] = same(0);
+        }
+        return a;
+    }
+    align_lines(old, new, ignore_ws)
+}
+
+fn align_lines(old: &[String], new: &[String], ignore_ws: bool) -> Aligned {
     let (ok, nk): (Vec<String>, Vec<String>) = if ignore_ws {
         (old.iter().map(|s| normalize(s)).collect(), new.iter().map(|s| normalize(s)).collect())
     } else {
@@ -213,9 +239,20 @@ mod tests {
     }
 
     #[test]
-    fn empty_side() {
-        let a = align(&v(""), &v("a\nb"), false);
+    fn empty_side_is_pinned_to_the_top_not_matched_to_a_blank_line() {
+        // Left ends with blank lines; the empty right side must not anchor on them.
+        let a = align(&v("Hi there\nHow are\n\n\n"), &v(""), false);
         assert_eq!(a.left.len(), a.right.len());
-        assert!(a.additions >= 2);
+        assert_eq!(a.right[0].line, Some(0), "right's only line sits on the first row");
+        assert!(a.right[1..].iter().all(|r| r.kind == RowKind::Filler));
+        assert_eq!((a.additions, a.deletions), (0, 5));
+
+        let b = align(&v(""), &v("a\nb"), false);
+        assert_eq!(b.left[0].line, Some(0));
+        assert_eq!((b.additions, b.deletions), (2, 0));
+
+        let c = align(&v(""), &v(""), false);
+        assert_eq!(c.rows(), 1);
+        assert!(c.identical());
     }
 }
