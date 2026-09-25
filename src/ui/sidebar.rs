@@ -242,7 +242,7 @@ impl Kerf {
         let d = value.as_deref().map(|v| self.describe(v));
         let nerd = self.nerd();
         div()
-            .id(label)
+            .id(SharedString::from(format!("field-{label}")))
             .flex()
             .flex_col()
             .gap(px(2.))
@@ -500,7 +500,11 @@ impl Kerf {
             let active = if unrelated { mode == RangeMode::Compare } else { self.mode == mode };
             let disabled = unrelated && mode == RangeMode::PrMerge;
             div()
-                .id(mode.short())
+                // Unique id: "Compare" alone would collide with the Compare branch field.
+                .id(match mode {
+                    RangeMode::PrMerge => "view-pr-merge",
+                    RangeMode::Compare => "view-compare",
+                })
                 .flex_1()
                 .h(px(24.))
                 .flex()
@@ -569,7 +573,7 @@ impl Kerf {
         let tab = |this: &Kerf, t: Tab, label: &'static str, n: usize, cx: &mut Context<Kerf>| {
             let active = this.tab == t;
             div()
-                .id(label)
+                .id(SharedString::from(format!("tab-{label}")))
                 .flex_1()
                 .h_full()
                 .relative()
