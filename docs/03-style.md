@@ -90,6 +90,20 @@ Syntax colours sit *on top of* add/del tints; both are tuned so contrast holds (
 
 Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `List`, `PR Merge`, `Compare`) — symbols like `⫼ ⎵ …` render too small in JetBrains Mono. Glyphs only where universally clear and legible: `▾ ▸ ⇄ ↑ ↓ ✓`. Shortcut hints use `ink.mute` at `text.control`, never `ink.faint`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
 
+## 4b. App icon — "Hairline kerf"
+
+| Element | Colour | Meaning |
+|---|---|---|
+| Tile | `bg.void` `#000000`, 28/120 corner radius, `line.hi` edge | The canvas |
+| Left bar | `del.fg` `#e0706c` | Base / old / removed |
+| Right bar, dropped 10/120 | `add.fg` `#8fc49a` | Compare / new / added — the offset *is* the difference |
+| Hairline between them | `accent.frost` `#a9c4d9` | The kerf — the cut |
+
+- Master: `assets/icon/kerf.svg` (macOS grid: 824-pt artwork on a 1024 canvas). Source of truth: `examples/icon.rs`.
+- Small sizes are drawn, not scaled: hairline 1.5 → 2.4 → 4 → 7 design units at ≥128 / 64 / 32 / 16 px, bars widen slightly.
+- In-app: `widgets::app_icon(size)` draws the same mark with shapes (titlebar 16 px, start page 56 px).
+- Never recolour, add a gradient, or put text on it.
+
 ## 5. Components
 
 | Component | Spec |

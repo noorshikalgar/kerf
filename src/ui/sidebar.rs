@@ -39,6 +39,7 @@ impl Kerf {
                     window.start_window_move();
                 }
             })
+            .child(widgets::app_icon(16.))
             .child(div().text_size(theme::TEXT_LIST).font_weight(gpui::FontWeight::BOLD).text_color(theme::bone()).child("kerf"))
             .child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
             // Repository switcher: always reachable, from git or plain-diff mode.

@@ -171,3 +171,34 @@ pub fn chevron(open: bool, nerd: bool) -> Div {
         .text_color(theme::mute())
         .child(glyph)
 }
+
+/// The Kerf mark (B2 "hairline kerf") drawn with plain shapes, crisp at any size.
+/// Mirrors `examples/icon.rs`: small sizes get a thicker hairline so the cut stays visible.
+pub fn app_icon(size: f32) -> Div {
+    let (slit, bar, gap) = if size <= 20. {
+        (7.0, 25.0, 3.0)
+    } else if size <= 40. {
+        (4.0, 24.5, 1.5)
+    } else if size <= 72. {
+        (2.4, 23.0, 2.0)
+    } else {
+        (1.5, 22.0, 2.25)
+    };
+    let s = size / 120.;
+    let rect = |x: f32, y: f32, w: f32, h: f32, color: Hsla, r: f32| {
+        div().absolute().left(px(x * s)).top(px(y * s)).w(px(w * s)).h(px(h * s)).rounded(px(r * s)).bg(color)
+    };
+    let cx = 60.;
+    div()
+        .relative()
+        .flex_none()
+        .w(px(size))
+        .h(px(size))
+        .rounded(px(28. * s))
+        .bg(theme::void())
+        .border_1()
+        .border_color(theme::line_hi())
+        .child(rect(cx - slit / 2. - gap - bar, 28., bar, 58., theme::del_fg(), 3.))
+        .child(rect(cx + slit / 2. + gap, 38., bar, 58., theme::add_fg(), 3.))
+        .child(rect(cx - slit / 2., 20., slit, 84., theme::frost(), 0.))
+}

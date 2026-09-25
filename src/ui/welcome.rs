@@ -178,7 +178,14 @@ impl Kerf {
                             .flex()
                             .flex_col()
                             .gap(px(6.))
-                            .child(div().text_size(px(34.)).font_weight(FontWeight::BOLD).text_color(theme::bone()).child("kerf"))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(16.))
+                                    .child(super::widgets::app_icon(56.))
+                                    .child(div().text_size(px(34.)).font_weight(FontWeight::BOLD).text_color(theme::bone()).child("kerf")),
+                            )
                             .child(
                                 div()
                                     .text_size(theme::TEXT_LIST)

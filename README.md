@@ -1,26 +1,55 @@
-# Kerf
+<p align="center">
+  <img src="assets/icon/kerf-256.png" width="112" alt="Kerf icon">
+</p>
 
-> The kerf is the slit a saw blade leaves behind. Kerf shows you the cut between two branches.
+<h1 align="center">Kerf</h1>
 
-A fast, native, keyboard-first **Git branch diff viewer** built in Rust on [GPUI](https://www.gpui.rs/) (Zed's GPU UI framework). Black Metal dark theme, JetBrains Mono, read-only.
+<p align="center">
+  <b>The cut between two branches — or any two texts.</b><br>
+  A fast, native, keyboard-first diff tool built in Rust on <a href="https://www.gpui.rs/">GPUI</a> (Zed's GPU UI framework).
+</p>
 
-## Features (v0.1)
+---
 
-- Open any local repo (`kerf <path>`, ⌘O, or recents) — root auto-discovered
-- Pick **Base** and **Compare** from a fuzzy picker — branches, remotes, tags, **any commit** (recent list, SHA prefix, message search, or revisions like `HEAD~3`) — defaults to `main`/`develop` vs current branch
-- Two views, explained in-app (F1 / `?`):
-  - **PR Merge View** (`base...compare`) — only what compare adds, like a GitHub PR
-  - **Compare View** (`base..compare`) — full tip-to-tip difference; used automatically for unrelated histories
-- Merge base, ahead / behind counts
-- **Files** tab: tree or flat, status glyphs, +/− counts, rename similarity, binary/generated badges, filter, viewed ticks
-- **Commits** tab: ahead + behind groups, expand a commit to walk its own files (merges vs first parent)
-- **Plain diff (no git)** — live side-by-side diff editor (like Meld / VS Code's diff editor): New Diff (⌘N) to type or paste, Compare Files (⌥⌘N) or `kerf a.txt b.txt`. Both sides always editable; the diff updates as you type, filler rows keep matching lines aligned, one scroll moves both sides. Files are never written.
-- **Tabs**: single-click opens a preview tab (italic), double-click / ↵ keeps it; ⌘W close, ⌘⇧[ ⌘⇧] switch, middle-click close; each tab keeps its scroll
-- Diff pane: unified or split, word-level emphasis, syntax colour, hunk headers with function context, collapsed gaps (click to expand), hunk minimap
-- Big files: diffs computed off the UI thread, virtualized rendering, 20 MB gate, 10k-char line truncation, lockfiles/`*.min.*`/`dist/` collapsed by default
-- 100k-line file diff → ~150 ms (release)
+> **Kerf** /kɜːf/ — the slit a saw blade leaves behind. The icon is exactly that: two sides, offset by their difference, cut apart by a hairline.
 
-## Build & run
+## What it does
+
+**Git branch diffs** (read-only — Kerf never writes to your repo)
+- Open any local repo (`kerf <path>`, ⌘O, the titlebar switcher, or Recent)
+- Pick **Base** and **Compare**: branches, remotes, tags, **any commit** (SHA prefix, message search, or `HEAD~3`)
+- **PR Merge View** (`base...compare`) — only what compare adds, like a GitHub PR · **Compare View** (`base..compare`) — full tip-to-tip difference. Press **?** in the app for a visual explainer
+- **Files** tab (tree / list, search, rename %, viewed ticks) and **Commits** tab (ahead / behind, set any commit as base / compare with `b` / `c`)
+- Unified or split, word-level highlights, syntax colour, fixed gutters, horizontal scroll, **wrap**, draggable split divider, change minimap, **tabs**
+- Built for big diffs: background work, virtualized rows, 100k-line file in ~150 ms, 20 MB gate, lockfiles collapsed
+
+**Plain diffs** (no git needed)
+- **New Diff** — a live side-by-side diff editor (like Meld / VS Code's diff editor): type or paste on both sides, the diff updates as you type, filler rows keep lines aligned, one scroll moves both sides
+- **Compare Files** or `kerf a.txt b.txt` — the same editable view for two files. Nothing is written to disk
+
+**Everything else**
+- Multiple windows (⌘⇧N) · start page · Black Metal dark theme · JetBrains Mono
+- Every shortcut in one place: click **Shortcuts** in the status bar
+
+## Install
+
+Download the latest **`Kerf-<version>-macos-universal.zip`** from [Releases](https://github.com/noorshikalgar/kerf/releases), unzip, and move **Kerf.app** to Applications.
+
+The app is ad-hoc signed, not notarized, so macOS will warn on first launch. Either right-click → **Open**, or:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Kerf.app
+```
+
+To use `kerf` from a terminal:
+
+```bash
+ln -sf /Applications/Kerf.app/Contents/MacOS/kerf /usr/local/bin/kerf
+```
+
+## Build from source
+
+Requires Rust 1.85+ on macOS 12+. GPUI is built with `runtime_shaders`, so the Xcode Metal toolchain is not needed.
 
 ```bash
 cargo run --release -- ~/path/to/repo
@@ -30,35 +59,34 @@ cargo run --release -- ~/path/to/repo
 cargo run --release -- old.txt new.txt
 ```
 
-Requires Rust 1.85+ on macOS. GPUI is built with `runtime_shaders`, so the Xcode Metal toolchain is not needed.
+Build `dist/Kerf.app` (with icon) and a zip:
 
-## Keys
-
-In the app: click **Shortcuts** in the status bar for the full list.
-
-
-| Key | Action | Key | Action |
-|---|---|---|---|
-| ⌘O | open repo | ↑ ↓ / j k | move selection (diff follows) |
-| ⌘R | refresh | ← → / h l | collapse / expand |
-| ⌘1 / ⌘2 | pick base / compare | ] [ | next / previous file |
-| ⌘⇧S | swap base ⇄ compare | n p | next / previous hunk |
-| ⌘⇧M | PR Merge / Compare view | s | split / unified |
-| ⌘⇧F / ⌘⇧C | files / commits tab | w | ignore whitespace |
-| ⌘B | toggle sidebar | t | tree / flat |
-| b / c | commit → base / compare | F1 / ? | explain views |
-| ⌘W | close tab | ⌘⇧[ ⌘⇧] | previous / next tab |
-| ⌘⇧N | new window | ⌘⇧W | close window |
-| / | filter files | y | copy path / SHA |
-| space / ⇧space | page down / up | g / G | top / bottom |
-
-## Docs
-
-Planning docs live in [`docs/`](docs/): PRD, UI/UX PRD, style guide, architecture, workflow.
+```bash
+scripts/bundle-macos.sh
+```
 
 ## Tests
 
 ```bash
-cargo test                                              # unit + git fixtures
-cargo test --release --test perf -- --ignored --nocapture   # 100k-line timing
+cargo test
 ```
+
+```bash
+cargo test --release --test perf -- --ignored --nocapture
+```
+
+## Icon
+
+The mark lives in [`assets/icon/`](assets/icon/): `kerf.svg` is the master, and `examples/icon.rs` renders every macOS size into an iconset (the hairline is re-drawn thicker at 16 and 32 px so the cut stays visible).
+
+```bash
+cargo run --example icon
+```
+
+## Docs
+
+Planning and design docs are in [`docs/`](docs/): PRD, UI/UX PRD, style guide (Black Metal), architecture, workflow.
+
+## License
+
+MIT
