@@ -10,6 +10,11 @@ use gpui::{
 };
 
 impl Kerf {
+    /// Narrow sidebar: drop secondary details (SHAs, ages, badges, ratio bar, long labels).
+    fn compact(&self) -> bool {
+        self.sidebar_w < theme::SIDEBAR_COMPACT
+    }
+
     pub fn render_titlebar(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let range = match (&self.base, &self.compare) {
             (Some(b), Some(c)) => format!("{} … {}", self.display_ref(b), self.display_ref(c)),
@@ -223,6 +228,7 @@ impl Kerf {
 
     /// Two-line picker field: label + shortcut on top, icon + ref (+ subject for commits) + SHA below.
     fn range_field(&self, which: Which, cx: &mut Context<Self>) -> impl IntoElement {
+        let compact = self.compact();
         let (label, value, tip) = match which {
             Which::Base => ("Base", self.base.clone(), "Pick base — branch, tag or commit  ⌘1"),
             Which::Compare => ("Compare", self.compare.clone(), "Pick compare — branch, tag or commit  ⌘2"),
@@ -285,7 +291,7 @@ impl Kerf {
                         )
                     })
                     .when(d.subject.is_none(), |x| x.child(div().flex_1()))
-                    .when_some(d.sha.filter(|_| d.look != RefLook::Commit), |x, sha| {
+                    .when_some(d.sha.filter(|_| d.look != RefLook::Commit && !compact), |x, sha| {
                         x.child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(sha))
                     }),
             })
@@ -294,6 +300,7 @@ impl Kerf {
     /// Collapsible "Comparison" section: what vs what, which view, and the range facts.
     /// Collapsed it keeps a one-line summary so context is never lost.
     fn render_range_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let compact = self.compact();
         let data = self.range_data().cloned();
         let unrelated = data.as_ref().is_some_and(|d| d.cmp.unrelated());
         let open = self.range_open;
@@ -344,7 +351,7 @@ impl Kerf {
                         .text_color(theme::mute())
                         .child(summary),
                 )
-                .children(pills())
+                .when(!compact, |d| d.children(pills()))
             })
             .when(open, |d| d.child(div().flex_1()));
 
@@ -485,6 +492,7 @@ impl Kerf {
 
     /// Full-width segmented control: PR Merge | Compare.
     fn view_switch(&self, unrelated: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let compact = self.compact();
         let item = |mode: RangeMode, tip: &'static str, cx: &mut Context<Kerf>| {
             let active = if unrelated { mode == RangeMode::Compare } else { self.mode == mode };
             let disabled = unrelated && mode == RangeMode::PrMerge;
@@ -514,7 +522,7 @@ impl Kerf {
                         }
                     }))
                 })
-                .child(mode.label())
+                .child(if compact { mode.short() } else { mode.label() })
         };
         div()
             .flex()
@@ -756,6 +764,7 @@ impl Kerf {
     }
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let compact = self.compact();
         let row = &self.rows[ix];
         let selected = self.selected == Some(ix);
         let base = div()
@@ -801,7 +810,7 @@ impl Kerf {
                     ))
                     .child(div().flex_1())
                     .child(counts(Some(a), Some(x)))
-                    .child(ratio_bar(a, x))
+                    .when(!compact, |d| d.child(ratio_bar(a, x)))
                     .into_any_element()
             }
             ListRow::Notice(n) => base
@@ -872,8 +881,8 @@ impl Kerf {
                     .when_some(renamed, |d, r| {
                         d.child(div().flex_none().max_w(px(140.)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child(r))
                     })
-                    .when(c.binary, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("BIN")))
-                    .when(c.is_generated(), |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("GEN")))
+                    .when(c.binary && !compact, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("BIN")))
+                    .when(c.is_generated() && !compact, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("GEN")))
                     .child(counts(c.additions.map(u64::from), c.deletions.map(u64::from)))
                     .when(viewed, |d| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("✓")))
                     .into_any_element()
@@ -902,7 +911,7 @@ impl Kerf {
                 base.pl(px(10.))
                     .child(widgets::chevron(open, self.nerd()))
                     .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::syn_type()).child(c.short()))
-                    .when(c.is_merge(), |d| d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE")))
+                    .when(c.is_merge() && !compact, |d| d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE")))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c.summary.clone()))
                     .when(is_base, |d| d.child(tag_badge("Base")))
                     .when(is_compare, |d| d.child(tag_badge("Compare")))
@@ -920,7 +929,7 @@ impl Kerf {
                             })),
                         )
                     })
-                    .when(!selected, |d| d.child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time))))
+                    .when(!selected && !compact, |d| d.child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time))))
                     .into_any_element()
             }
             ListRow::CommitFile { change } => {

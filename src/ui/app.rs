@@ -336,7 +336,7 @@ impl Kerf {
             layout: if persisted.split { Layout::Split } else { Layout::Unified },
             ignore_ws: persisted.ignore_ws,
             tree: persisted.tree,
-            sidebar_w: persisted.sidebar_w.unwrap_or(theme::SIDEBAR_W),
+            sidebar_w: persisted.sidebar_w.unwrap_or(theme::SIDEBAR_W).max(theme::SIDEBAR_MIN),
             persisted,
             repo_path: None,
             repo_name: String::new(),
@@ -1684,7 +1684,13 @@ impl Render for Kerf {
                         this.resizing = false;
                     } else {
                         let w: f32 = ev.position.x.into();
-                        this.sidebar_w = w.clamp(theme::SIDEBAR_MIN, 900.);
+                        if w < theme::SIDEBAR_SNAP {
+                            // Too narrow to be useful: collapse instead of cramming (⌘B restores).
+                            this.sidebar_open = false;
+                            this.resizing = false;
+                        } else {
+                            this.sidebar_w = w.clamp(theme::SIDEBAR_MIN, 900.);
+                        }
                     }
                     cx.notify();
                 }

@@ -160,8 +160,8 @@ impl Kerf {
             .h_full()
             .w(px(WIDTH))
             .bg(theme::abyss())
-            .border_l_1()
-            .border_color(theme::line())
+            // The sidebar list's scrollbar sits against the sidebar's own border: no second edge.
+            .when(bar == Bar::Diff, |d| d.border_l_1().border_color(theme::line()))
             .when(show_thumb, |d| {
                 d.on_mouse_down(
                     MouseButton::Left,
