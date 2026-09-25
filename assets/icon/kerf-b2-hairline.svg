@@ -1,0 +1,8 @@
+<!-- Kerf app icon — B2 "Hairline kerf" (confirmed pick, 2026-09-25).
+     Two branches (removed / added) offset by their difference, cut apart by a frost hairline: the kerf. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 120 120">
+  <rect x="0" y="0" width="120" height="120" rx="28" fill="#000000"/>
+  <rect x="35" y="28" width="22" height="58" rx="3" fill="#e0706c"/>
+  <rect x="63" y="38" width="22" height="58" rx="3" fill="#8fc49a"/>
+  <rect x="59.25" y="20" width="1.5" height="84" fill="#a9c4d9"/>
+</svg>
