@@ -45,6 +45,7 @@ const GROUPS: &[Group] = &[
             ("g  G", "Top / bottom"),
             ("s", "Unified / split"),
             ("w", "Ignore whitespace"),
+            ("z", "Wrap long lines"),
             ("↵", "Load large file · keep tab open"),
         ],
     ),

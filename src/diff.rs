@@ -200,6 +200,61 @@ fn tokenize(s: &str) -> Vec<Range<usize>> {
     out
 }
 
+/// Soft-wrap layout: logical rows split into equal-height visual rows (monospace font, so a
+/// column count fully determines where lines break).
+pub struct Wrapped {
+    pub cols: usize,
+    /// Visual row → (logical row, segment within it).
+    pub map: Vec<(u32, u32)>,
+    /// Logical row → first visual row; has one extra trailing entry (= total visual rows).
+    pub starts: Vec<usize>,
+}
+
+impl Wrapped {
+    pub fn segments(&self, logical: usize) -> usize {
+        self.starts[logical + 1] - self.starts[logical]
+    }
+}
+
+/// Characters a line occupies on screen: tabs expand to 4, very long lines are truncated
+/// (plus room for the "… N more chars" suffix).
+pub fn display_chars(s: &str) -> usize {
+    let (shown, hidden) = truncate(s);
+    let n: usize = shown.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum();
+    if hidden > 0 { n + 24 } else { n }
+}
+
+fn segs(chars: usize, cols: usize) -> usize {
+    chars.div_ceil(cols.max(1)).max(1)
+}
+
+pub fn wrap_rows(fd: &FileDiff, rows: &Rows, cols: usize) -> Wrapped {
+    let mut map = Vec::with_capacity(rows.rows.len());
+    let mut starts = Vec::with_capacity(rows.rows.len() + 1);
+    let len = |idx: usize| display_chars(fd.line_text(&fd.lines[idx]));
+    for (i, row) in rows.rows.iter().enumerate() {
+        starts.push(map.len());
+        let n = match row {
+            Row::Line { idx, .. } => segs(len(*idx), cols),
+            Row::Pair { left, right } => {
+                let l = left.as_ref().map(|c| segs(len(c.idx), cols)).unwrap_or(1);
+                let r = right.as_ref().map(|c| segs(len(c.idx), cols)).unwrap_or(1);
+                l.max(r)
+            }
+            Row::Hunk(_) | Row::Gap { .. } => 1,
+        };
+        map.extend((0..n).map(|seg| (i as u32, seg as u32)));
+    }
+    starts.push(map.len());
+    Wrapped { cols, map, starts }
+}
+
+/// Byte range of the `seg`-th chunk of `cols` characters in `s`.
+pub fn segment_range(s: &str, seg: usize, cols: usize) -> std::ops::Range<usize> {
+    let byte_at = |ci: usize| s.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(s.len());
+    byte_at(seg * cols)..byte_at((seg + 1) * cols)
+}
+
 /// Truncates display text at `MAX_LINE_CHARS` on a char boundary. Returns hidden char count.
 pub fn truncate(s: &str) -> (&str, usize) {
     if s.len() <= MAX_LINE_CHARS {
@@ -299,6 +354,39 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, [(Some(0), Some(0)), (Some(1), Some(3)), (Some(2), None), (Some(4), Some(4))]);
+    }
+
+    #[test]
+    fn wrap_splits_long_lines_into_equal_rows() {
+        let d = sample(); // lines: "keep", "let a = 1;", "let b = 2;", "let a = 10;", "tail"
+        let rows = build(&d, Layout::Unified);
+        let w = wrap_rows(&d, &rows, 4);
+        // gap, hunk, keep(1), "let a = 1;"(3), "let b = 2;"(3), "let a = 10;"(3), tail(1)
+        assert_eq!(w.segments(2), 1);
+        assert_eq!(w.segments(3), 3);
+        assert_eq!(w.map.len(), 1 + 1 + 1 + 3 + 3 + 3 + 1);
+        assert_eq!(*w.starts.last().unwrap(), w.map.len());
+        assert_eq!(w.map[w.starts[3] + 2], (3, 2));
+    }
+
+    #[test]
+    fn wrap_split_pairs_take_the_taller_side() {
+        let d = sample();
+        let rows = build(&d, Layout::Split);
+        let w = wrap_rows(&d, &rows, 5);
+        // pair (1: "let a = 1;" 10ch → 2, 3: "let a = 10;" 11ch → 3) → 3 visual rows
+        let pair_row = rows.rows.iter().position(|r| matches!(r, Row::Pair { left: Some(Cell { idx: 1, .. }), .. })).unwrap();
+        assert_eq!(w.segments(pair_row), 3);
+    }
+
+    #[test]
+    fn segment_ranges_are_char_safe() {
+        let s = "héllo wörld";
+        assert_eq!(&s[segment_range(s, 0, 4)], "héll");
+        assert_eq!(&s[segment_range(s, 1, 4)], "o wö");
+        assert_eq!(&s[segment_range(s, 2, 4)], "rld");
+        assert_eq!(&s[segment_range(s, 3, 4)], "");
+        assert_eq!(display_chars("\tab"), 6);
     }
 
     #[test]

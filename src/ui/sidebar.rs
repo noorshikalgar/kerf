@@ -92,6 +92,7 @@ impl Kerf {
             .when_some(viewed.filter(|(_, t)| *t > 0), |d, (v, t)| d.child(format!("{v}/{t} viewed")))
             .child(if self.layout == crate::diff::Layout::Split { "split" } else { "unified" })
             .child(if self.ignore_ws { "ws: ignored" } else { "ws: shown" })
+            .when(self.wrap, |d| d.child("wrap"))
             .child(
                 div()
                     .id("shortcuts-link")

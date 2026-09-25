@@ -24,6 +24,8 @@ pub struct Persisted {
     #[serde(default)]
     pub range_collapsed: bool,
     #[serde(default)]
+    pub wrap: bool,
+    #[serde(default)]
     pub banner_collapsed: bool,
     #[serde(default)]
     pub banner_h: Option<f32>,

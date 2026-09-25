@@ -1,9 +1,9 @@
 //! Diff pane: sticky file header, commit banner, and the virtualized diff body.
 
 use super::app::{DiffState, Kerf, Loaded, Target};
-use super::scrollbar::Bar;
+use super::scrollbar::{Bar, MAP_WIDTH, WIDTH as SCROLL_WIDTH};
 use super::widgets::{self, age, bytes, counts, micro, seg, status_glyph, thousands};
-use crate::diff::{self, Layout, Row};
+use crate::diff::{self, Layout, Row, Wrapped};
 use crate::git::{short_sha, ChangeStatus, DiffBody, LineKind};
 use crate::highlight::Syn;
 use crate::theme;
@@ -20,7 +20,35 @@ use std::time::Duration;
 const CHAR_W: f32 = 8.4;
 
 impl Kerf {
-    pub fn render_diff_pane(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Soft-wrap layout for the loaded diff at the current pane width (cached per rows + width).
+    fn wrapped_for(&mut self, l: &Arc<Loaded>, window: &Window) -> Option<Arc<Wrapped>> {
+        if !self.wrap {
+            return None;
+        }
+        let mut pane_w = f32::from(window.viewport_size().width) - MAP_WIDTH - SCROLL_WIDTH - 2.;
+        if self.sidebar_open {
+            pane_w -= self.sidebar_w + 1.;
+        }
+        let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
+        let split = self.layout == Layout::Split && l.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
+        let avail = if split {
+            (pane_w - 1.) / 2. - gutter - CHAR_W * 2. - 8.
+        } else {
+            pane_w - gutter * 2. - CHAR_W * 2. - 24.
+        };
+        let cols = ((avail / CHAR_W).floor() as usize).max(16);
+        let key = Arc::as_ptr(&l.rows) as usize;
+        if let Some((k, c, w)) = &self.wrap_cache {
+            if *k == key && *c == cols {
+                return Some(w.clone());
+            }
+        }
+        let w = Arc::new(diff::wrap_rows(&l.fd, &l.rows, cols));
+        self.wrap_cache = Some((key, cols, w.clone()));
+        Some(w)
+    }
+
+    pub fn render_diff_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (target, loaded, loading, error) = match &self.diff {
             DiffState::Empty => (None, None, false, None),
             DiffState::Loading { target, prev, since } => {
@@ -60,7 +88,14 @@ impl Kerf {
                         .flex_1()
                         .min_h_0()
                         .when(stale && dim, |d| d.opacity(0.5))
-                        .child(self.render_body(&l, cx)),
+                        .child({
+                            let wrapped = self.wrapped_for(&l, window);
+                            if let Some(row) = self.pending_top_row.take() {
+                                let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
+                                self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
+                            }
+                            self.render_body(&l, wrapped, cx)
+                        }),
                 )
                 .into_any_element()
             }
@@ -417,9 +452,13 @@ impl Kerf {
                 seg("ws", "Ignore WS", self.ignore_ws, "Ignore whitespace  w")
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_ws(cx))),
             )
+            .child(
+                seg("wrap", "Wrap", self.wrap, "Wrap long lines  z")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_wrap(cx))),
+            )
     }
 
-    fn render_body(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> AnyElement {
+    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, cx: &mut Context<Self>) -> AnyElement {
         let fd = &l.fd;
         match &fd.body {
             DiffBody::Binary => {
@@ -473,19 +512,28 @@ impl Kerf {
             return notice("No line changes", why, theme::mute()).into_any_element();
         }
 
-        let count = l.rows.rows.len();
         let loaded = l.clone();
         let split = self.layout == Layout::Split && loaded.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
+        let count = wrapped.as_ref().map(|w| w.map.len()).unwrap_or(l.rows.rows.len());
+        let wrap = wrapped.clone();
         let list = uniform_list(
             "diff",
             count,
             cx.processor(move |_this, range: Range<usize>, _, cx| {
-                range.map(|ix| render_row(&loaded, ix, cx)).collect::<Vec<_>>()
+                range
+                    .map(|ix| match &wrap {
+                        Some(w) => {
+                            let (row, seg) = w.map[ix];
+                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), cx)
+                        }
+                        None => render_row(&loaded, ix, ix, None, cx),
+                    })
+                    .collect::<Vec<_>>()
             }),
         )
         .track_scroll(self.diff_scroll.clone())
         .size_full()
-        .when(!split, |u| {
+        .when(!split && wrapped.is_none(), |u| {
             u.with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
                 .with_width_from_item(l.widest_row)
         });
@@ -523,7 +571,7 @@ impl Kerf {
                     .flex()
                     .flex_row()
                     .child(div().flex_1().min_w_0().h_full().child(list))
-                    .child(self.render_minimap(l, cx))
+                    .child(self.render_minimap(l, wrapped.as_deref(), cx))
                     .child(self.render_scrollbar(Bar::Diff, cx)),
             )
             .children(foot)
@@ -531,11 +579,16 @@ impl Kerf {
     }
 
     /// Minimap column: consecutive changed rows merge into one block, coloured by content.
-    fn render_minimap(&self, l: &Arc<Loaded>, cx: &mut Context<Self>) -> AnyElement {
+    fn render_minimap(&self, l: &Arc<Loaded>, wrapped: Option<&Wrapped>, cx: &mut Context<Self>) -> AnyElement {
         let blocks = change_blocks(l);
-        let total = l.rows.rows.len().max(1) as f32;
+        let total = wrapped.map(|w| w.map.len()).unwrap_or(l.rows.rows.len()).max(1) as f32;
         let marks = blocks
             .into_iter()
+            .map(|(start, len, kind)| match wrapped {
+                // Blocks are in logical rows; place them in visual rows when wrapping.
+                Some(w) => (w.starts[start], w.starts[start + len] - w.starts[start], kind),
+                None => (start, len, kind),
+            })
             .map(|(start, len, kind)| {
                 div()
                     .absolute()
@@ -642,7 +695,8 @@ fn syn_style(s: Syn) -> HighlightStyle {
 }
 
 /// Builds the styled text for one diff line: truncation, tab expansion, syntax + word emphasis.
-fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>]) -> StyledText {
+/// `seg`: `(segment, cols)` — render only that wrapped chunk of the line.
+fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>], seg: Option<(usize, usize)>) -> StyledText {
     let raw = l.fd.line_text(&l.fd.lines[idx]);
     let kind = l.fd.lines[idx].kind;
     let (shown, hidden) = diff::truncate(raw);
@@ -676,6 +730,15 @@ fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>]) -> StyledText {
         text.push_str(&format!("  … {} more chars", thousands(hidden as u64)));
         combined.push((start..text.len(), HighlightStyle { color: Some(theme::mute()), font_style: Some(FontStyle::Italic), ..Default::default() }));
     }
+    if let Some((seg, cols)) = seg {
+        let r = diff::segment_range(&text, seg, cols);
+        let spans = combined
+            .into_iter()
+            .filter(|(h, _)| h.end > r.start && h.start < r.end)
+            .map(|(h, st)| (h.start.max(r.start) - r.start..h.end.min(r.end) - r.start, st))
+            .collect::<Vec<_>>();
+        return StyledText::new(SharedString::from(text[r].to_string())).with_highlights(spans);
+    }
     StyledText::new(SharedString::from(text)).with_highlights(combined)
 }
 
@@ -707,10 +770,12 @@ fn sign(kind: LineKind) -> Div {
     div().w(px(CHAR_W * 2.)).flex_none().text_color(c).child(s)
 }
 
-fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement {
+/// `vis` = visual row (element id), `ix` = logical row, `seg` = wrapped chunk to draw.
+fn render_row(l: &Arc<Loaded>, vis: usize, ix: usize, seg: Option<(usize, usize)>, cx: &mut Context<Kerf>) -> AnyElement {
+    let first = seg.map(|(s, _)| s == 0).unwrap_or(true);
     let row_base = || {
         div()
-            .id(ix)
+            .id(vis)
             .h(theme::ROW_CODE)
             .min_w_full()
             .flex()
@@ -758,12 +823,13 @@ fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement 
             .into_any_element(),
         Row::Line { idx, emph } => {
             let line = &l.fd.lines[*idx];
+            // Continuation rows of a wrapped line keep the tint but drop numbers and sign.
             row_base()
                 .bg(line_bg(line.kind))
-                .child(gutter(line.old_no, l.gutter_digits))
-                .child(gutter(line.new_no, l.gutter_digits))
-                .child(sign(line.kind))
-                .child(div().pr(px(24.)).child(line_text(l, *idx, emph)))
+                .child(gutter(line.old_no.filter(|_| first), l.gutter_digits))
+                .child(gutter(line.new_no.filter(|_| first), l.gutter_digits))
+                .child(if first { sign(line.kind) } else { sign(LineKind::Context) })
+                .child(div().pr(px(24.)).child(line_text(l, *idx, emph, seg)))
                 .into_any_element()
         }
         Row::Pair { left, right } => {
@@ -774,10 +840,14 @@ fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement 
                     Some(c) => {
                         let line = &l.fd.lines[c.idx];
                         let kind = line.kind;
+                        let no = if old { line.old_no } else { line.new_no };
+                        // Shorter side of a wrapped pair: keep the tint, no text on extra rows.
+                        let own_segs = seg.map(|(_, cols)| diff::display_chars(l.fd.line_text(line)).div_ceil(cols).max(1)).unwrap_or(1);
+                        let past_end = seg.is_some_and(|(s, _)| s >= own_segs);
                         base.bg(line_bg(kind))
-                            .child(gutter(if old { line.old_no } else { line.new_no }, l.gutter_digits))
-                            .child(sign(kind))
-                            .child(line_text(l, c.idx, &c.emph))
+                            .child(gutter(no.filter(|_| first), l.gutter_digits))
+                            .child(if first { sign(kind) } else { sign(LineKind::Context) })
+                            .when(!past_end, |d| d.child(line_text(l, c.idx, &c.emph, seg)))
                     }
                 }
             };

@@ -289,6 +289,11 @@ pub struct Kerf {
     pub info_open: bool,
     /// Comparison section expanded in the sidebar.
     pub range_open: bool,
+    /// Soft-wrap long lines in the diff; layout cache keyed by (rows ptr, cols).
+    pub wrap: bool,
+    pub wrap_cache: Option<(usize, usize, Arc<crate::diff::Wrapped>)>,
+    /// Logical row to scroll to once the next layout exists (after toggling wrap).
+    pub pending_top_row: Option<usize>,
     /// Commit message panel: expanded, max body height, active drag (start y, start height).
     pub banner_open: bool,
     pub banner_h: f32,
@@ -361,6 +366,9 @@ impl Kerf {
             pin_next: false,
             info_open: false,
             range_open: true,
+            wrap: false,
+            wrap_cache: None,
+            pending_top_row: None,
             banner_open: true,
             banner_h: BANNER_DEFAULT_H,
             banner_drag: None,
@@ -374,6 +382,7 @@ impl Kerf {
             flash_task: None,
         };
         this.range_open = !this.persisted.range_collapsed;
+        this.wrap = this.persisted.wrap;
         this.banner_open = !this.persisted.banner_collapsed;
         this.banner_h = this.persisted.banner_h.unwrap_or(BANNER_DEFAULT_H);
         match launch {
@@ -1220,19 +1229,57 @@ impl Kerf {
         cx.notify();
     }
 
+    /// Active soft-wrap layout, if wrapping and it matches the loaded diff.
+    fn wrapped(&self) -> Option<&Arc<crate::diff::Wrapped>> {
+        let l = self.loaded()?;
+        let (key, _, w) = self.wrap_cache.as_ref()?;
+        (self.wrap && *key == Arc::as_ptr(&l.rows) as usize).then_some(w)
+    }
+
+    /// Rows the diff list actually draws (visual rows when wrapping).
+    pub fn visual_len(&self) -> usize {
+        match self.wrapped() {
+            Some(w) => w.map.len(),
+            None => self.loaded().map(|l| l.rows.rows.len()).unwrap_or(0),
+        }
+    }
+
+    fn to_visual(&self, logical: usize) -> usize {
+        self.wrapped().map(|w| w.starts[logical.min(w.starts.len() - 1)]).unwrap_or(logical)
+    }
+
+    fn to_logical(&self, visual: usize) -> usize {
+        self.wrapped().and_then(|w| w.map.get(visual).map(|m| m.0 as usize)).unwrap_or(visual)
+    }
+
+    /// Top visible visual row.
+    fn top_visual(&self) -> usize {
+        let offset = -self.diff_scroll.0.borrow().base_handle.offset().y;
+        (offset / theme::ROW_CODE).floor().max(0.) as usize
+    }
+
+    pub fn toggle_wrap(&mut self, cx: &mut Context<Self>) {
+        // Keep the same logical row at the top across the switch.
+        let top = self.to_logical(self.top_visual());
+        self.wrap = !self.wrap;
+        self.persisted.wrap = self.wrap;
+        self.persisted.save();
+        self.wrap_cache = None;
+        self.pending_top_row = Some(top);
+        cx.notify();
+    }
+
     fn jump_hunk(&mut self, forward: bool, cx: &mut Context<Self>) {
         let DiffState::Ready(l) = &self.diff else { return };
-        let state = self.diff_scroll.0.borrow();
-        let offset = -state.base_handle.offset().y;
-        drop(state);
-        let current = (offset / theme::ROW_CODE).floor() as usize;
+        let current = self.to_logical(self.top_visual());
         let target = if forward {
             l.rows.hunk_rows.iter().copied().find(|&r| r > current)
         } else {
             l.rows.hunk_rows.iter().rev().copied().find(|&r| r + 1 < current.max(1))
         };
         if let Some(r) = target {
-            self.diff_scroll.scroll_to_item_strict(r, ScrollStrategy::Top);
+            let v = self.to_visual(r);
+            self.diff_scroll.scroll_to_item_strict(v, ScrollStrategy::Top);
             cx.notify();
         } else if forward {
             self.step_file(true, cx);
@@ -1240,15 +1287,11 @@ impl Kerf {
     }
 
     fn page(&mut self, rows: isize, cx: &mut Context<Self>) {
-        let DiffState::Ready(l) = &self.diff else { return };
-        let len = l.rows.rows.len();
+        let len = self.visual_len();
         if len == 0 {
             return;
         }
-        let state = self.diff_scroll.0.borrow();
-        let offset = -state.base_handle.offset().y;
-        drop(state);
-        let current = (offset / theme::ROW_CODE).floor() as isize;
+        let current = self.top_visual() as isize;
         let target = (current + rows).clamp(0, len as isize - 1) as usize;
         self.diff_scroll.scroll_to_item_strict(target, ScrollStrategy::Top);
         cx.notify();
@@ -1538,6 +1581,7 @@ impl Render for Kerf {
                 this.set_layout(next, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleWhitespace, _, cx| this.toggle_ws(cx)))
+            .on_action(cx.listener(|this, _: &ToggleWrap, _, cx| this.toggle_wrap(cx)))
             .on_action(cx.listener(|this, _: &ToggleTree, _, cx| {
                 this.tree = !this.tree;
                 this.persisted.tree = this.tree;
@@ -1561,8 +1605,8 @@ impl Render for Kerf {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Bottom, _, cx| {
-                if let DiffState::Ready(l) = &this.diff {
-                    let n = l.rows.rows.len();
+                if matches!(this.diff, DiffState::Ready(_)) {
+                    let n = this.visual_len();
                     if n > 0 {
                         this.diff_scroll.scroll_to_item_strict(n - 1, ScrollStrategy::Bottom);
                         cx.notify();

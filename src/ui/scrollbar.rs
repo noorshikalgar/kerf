@@ -105,7 +105,7 @@ impl Kerf {
             Bar::List => (&self.list_scroll, self.rows.len(), f32::from(theme::ROW_LIST)),
             Bar::Diff => (
                 &self.diff_scroll,
-                self.loaded().map(|l| l.rows.rows.len()).unwrap_or(0),
+                self.visual_len(),
                 f32::from(theme::ROW_CODE),
             ),
         }
