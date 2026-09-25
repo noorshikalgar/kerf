@@ -1723,8 +1723,8 @@ impl Render for Kerf {
                     .min_h_0()
                     .flex()
                     .flex_row()
-                    .when(self.sidebar_open, |d| d.child(self.render_sidebar(window, cx)))
-                    .when(self.sidebar_open, |d| {
+                    .when(self.sidebar_open && self.repo_path.is_some(), |d| d.child(self.render_sidebar(window, cx)))
+                    .when(self.sidebar_open && self.repo_path.is_some(), |d| {
                         d.child(
                             div()
                                 .id("resize")

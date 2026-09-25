@@ -67,6 +67,10 @@ One window, one screen. No routes, no modals for primary content (master-detail 
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Start page & modes (v1.1)
+
+Like Zed / VS Code: with no repository open the window is a **start page** (no sidebar): *Start* (Open Repository…, New Diff, Compare Files…), *Learn* (Shortcuts, PR Merge vs Compare View), *Recent* (repos; missing ones struck through, removable). The **sidebar exists only in git mode** — it appears when a repository opens and disappears when it is closed (✕ on the repo block). Plain-diff tabs never need it. The last repository still reopens on launch.
+
 ### Inventory
 
 | Region | Purpose (≤6 words) | Parent |

@@ -10,6 +10,7 @@ mod shortcuts;
 mod scrollbar;
 mod sidebar;
 mod state;
+mod welcome;
 mod widgets;
 
 pub use app::Kerf;

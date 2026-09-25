@@ -172,7 +172,26 @@ impl Kerf {
                                     .text_color(if has_repo { theme::bone() } else { theme::body() })
                                     .child(name),
                             )
-                            .when(self.repo_loading, |d| d.child(widgets::spinner())),
+                            .when(self.repo_loading, |d| d.child(widgets::spinner()))
+                            .child(
+                                div()
+                                    .id("close-repo")
+                                    .flex_none()
+                                    .w(px(22.))
+                                    .h(px(22.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(theme::RADIUS)
+                                    .text_color(theme::mute())
+                                    .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                                    .tooltip(|_, cx| cx.new(|_| widgets::Tip("Close repository")).into())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.close_repo(cx);
+                                    }))
+                                    .child(if nerd { "\u{ea76}" } else { "✕" }),
+                            ),
                     )
                     .when(has_repo, |d| {
                         d.child(
@@ -200,36 +219,6 @@ impl Kerf {
             .when_some(self.repo_error.clone(), |d, e| {
                 d.child(div().mt(px(6.)).text_size(theme::TEXT_CONTROL).text_color(theme::del_fg()).child(e))
             })
-            .when(!has_repo, |d| d.child(self.render_recents(cx)))
-    }
-
-    fn render_recents(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let recents = self.persisted.recents.clone();
-        div()
-            .mt(px(12.))
-            .when(!recents.is_empty(), |d| d.child(micro("Recent").mb(px(4.))))
-            .children(recents.into_iter().enumerate().map(|(i, p)| {
-                let exists = p.exists();
-                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let p2 = p.clone();
-                div()
-                    .id(("recent", i))
-                    .h(theme::ROW_LIST)
-                    .flex()
-                    .items_center()
-                    .px(px(8.))
-                    .mx(px(-8.))
-                    .rounded(theme::RADIUS)
-                    .text_size(theme::TEXT_LIST)
-                    .text_color(if exists { theme::body() } else { theme::faint() })
-                    .when(!exists, |d| d.line_through())
-                    .when(exists, |d| {
-                        d.cursor_pointer()
-                            .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
-                            .on_click(cx.listener(move |this, _, _, cx| this.open_repo(p2.clone(), cx)))
-                    })
-                    .child(name)
-            }))
     }
 
     /// Two-line picker field: label + shortcut on top, icon + ref (+ subject for commits) + SHA below.

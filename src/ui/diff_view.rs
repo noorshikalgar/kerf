@@ -97,6 +97,9 @@ impl Kerf {
             return pane.child(self.render_live(&sc, cx)).into_any_element();
         }
         let Some(target) = target else {
+            if self.repo_path.is_none() && self.tabs.is_empty() {
+                return pane.child(self.render_start_page(cx)).into_any_element();
+            }
             return pane.child(self.render_welcome(cx)).into_any_element();
         };
         pane = pane.child(self.render_file_header(&target, loaded.as_ref().map(|l| &l.0), loading, cx));
