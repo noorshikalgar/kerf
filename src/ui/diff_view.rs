@@ -539,7 +539,6 @@ impl Kerf {
         }
 
         let loaded = l.clone();
-        let split = self.layout == Layout::Split && loaded.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
         let count = wrapped.as_ref().map(|w| w.map.len()).unwrap_or(l.rows.rows.len());
         let wrap = wrapped.clone();
         let list = uniform_list(
