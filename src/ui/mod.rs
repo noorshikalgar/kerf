@@ -2,6 +2,7 @@
 
 mod app;
 mod diff_view;
+mod editor;
 mod info;
 mod picker;
 mod scratch;
@@ -75,6 +76,7 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
+    editor::init(cx);
     cx.bind_keys([
         KeyBinding::new("cmd-o", OpenRepo, None),
         KeyBinding::new("cmd-r", Refresh, None),

@@ -1,3 +1,4 @@
+pub mod buffer;
 pub mod diff;
 pub mod git;
 pub mod highlight;

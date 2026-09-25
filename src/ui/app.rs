@@ -16,7 +16,7 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, PathPromptOptions, ScrollStrategy, SharedString, Task,
     UniformListScrollHandle, Window,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -300,6 +300,8 @@ pub struct Kerf {
     pub banner_drag: Option<(f32, f32)>,
     pub shortcuts_open: bool,
     pub scratch_seq: u64,
+    /// Editors per plain diff (scratch id).
+    pub editors: HashMap<u64, super::scratch::EditorPair>,
 
     pub picker: Option<Picker>,
     pub sidebar_open: bool,
@@ -374,6 +376,7 @@ impl Kerf {
             banner_drag: None,
             shortcuts_open: false,
             scratch_seq: 0,
+            editors: HashMap::new(),
             picker: None,
             sidebar_open: true,
             resizing: false,
@@ -1479,7 +1482,8 @@ impl Kerf {
 impl Render for Kerf {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_title(window);
-        let context = if self.input == Input::None { "Kerf" } else { "KerfInput" };
+        let editing_text = self.editors.values().any(|p| p.left.read(cx).is_focused(window) || p.right.read(cx).is_focused(window));
+        let context = if self.input == Input::None && !editing_text { "Kerf" } else { "KerfInput" };
         div()
             .id("kerf")
             .key_context(context)

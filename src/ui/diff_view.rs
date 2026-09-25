@@ -64,6 +64,7 @@ impl Kerf {
             pane = pane.child(self.render_tab_bar(cx));
         }
         if let Some(sc) = self.active_scratch().filter(|s| !s.ready()) {
+            self.ensure_editors(&sc, window, cx);
             return pane.child(self.render_composer(&sc, cx)).into_any_element();
         }
         let Some(target) = target else {
