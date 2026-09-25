@@ -41,8 +41,14 @@ impl Repo {
             .unwrap_or_else(|| self.root.display().to_string())
     }
 
+    /// No commits yet. Not `git2::Repository::is_empty`: libgit2 only treats a repo as empty
+    /// when HEAD points at the *configured default* branch name, so `git init -b main` on a
+    /// machine whose default is `master` read as "not empty". An unborn HEAD is the real test.
     pub fn is_empty(&self) -> bool {
-        self.repo.is_empty().unwrap_or(true)
+        match self.repo.head() {
+            Ok(_) => false,
+            Err(e) => matches!(e.code(), git2::ErrorCode::UnbornBranch | git2::ErrorCode::NotFound),
+        }
     }
 
     /// Short name of the checked-out branch, or `None` when detached/unborn.

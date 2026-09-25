@@ -81,6 +81,16 @@ fn open_discovers_root_from_subdir() {
 }
 
 #[test]
+fn empty_repo_with_non_default_branch_name_is_detected() {
+    // Regression: libgit2's is_empty() depends on init.defaultBranch; ours must not.
+    for branch in ["main", "master", "trunk", "develop"] {
+        let f = Fixture::new();
+        f.git(&["symbolic-ref", "HEAD", &format!("refs/heads/{branch}")]);
+        assert!(f.repo().is_empty(), "unborn {branch}");
+    }
+}
+
+#[test]
 fn empty_repo_is_detected() {
     let f = Fixture::new();
     let r = f.repo();
