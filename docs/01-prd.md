@@ -70,6 +70,11 @@ Expert users. Optimise for speed and density, not onboarding.
 18. As a dev, I want a clear state when branches share no history (unrelated), falling back to two-dot automatically with a notice.
 19. As a dev, I want a detached HEAD to be selectable as Compare, so that I can inspect a checkout.
 
+### Commit-to-commit comparison (v1.1)
+64. As a dev, I want Base and Compare to accept any commit (picked from Recent Commits, found by SHA prefix or message, or typed as a revision like `HEAD~3`), so that I can diff two points in history, not just two branches.
+65. As a dev, I want to press `b` / `c` on a commit in the Commits tab to make it Base / Compare, so that I can narrow a review to part of a branch.
+66. As a dev, I want a commit shown in a field as `short-SHA  subject`, so that I know which point in history I'm looking at.
+
 ### Files view (sidebar tab 1)
 20. As a dev, I want every changed file listed with its status glyph (A/M/D/R) and +/− counts, so that I can size up the change.
 21. As a dev, I want files shown as a collapsible directory tree or a flat list (toggle), so that I can scan by area or by name.

@@ -180,6 +180,20 @@ impl Repo {
         Ok(out)
     }
 
+    /// Newest commits reachable from any local branch (or HEAD), newest first.
+    pub fn recent_commits(&self, limit: usize) -> Result<Vec<CommitInfo>> {
+        if self.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut walk = self.repo.revwalk()?;
+        walk.set_sorting(Sort::TIME)?;
+        walk.push_glob("refs/heads/*")?;
+        if let Ok(head) = self.repo.head().and_then(|h| h.peel_to_commit()) {
+            walk.push(head.id())?;
+        }
+        walk.take(limit).map(|oid| self.commit_info(oid?)).collect()
+    }
+
     pub fn commit_info(&self, oid: Oid) -> Result<CommitInfo> {
         let c = self.repo.find_commit(oid)?;
         let author = c.author();

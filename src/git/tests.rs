@@ -313,6 +313,33 @@ fn no_newline_markers_are_tracked_not_rendered() {
 }
 
 #[test]
+fn recent_commits_span_all_local_branches() {
+    let f = diverged();
+    let r = f.repo();
+    let all: Vec<String> = r.recent_commits(10).unwrap().into_iter().map(|c| c.summary).collect();
+    for s in ["A: init", "B: main readme", "C: rename b", "D: add new"] {
+        assert!(all.iter().any(|x| x == s), "{s} missing from {all:?}");
+    }
+    assert_eq!(r.recent_commits(2).unwrap().len(), 2);
+}
+
+#[test]
+fn two_commits_compare_like_branches() {
+    let f = diverged();
+    let r = f.repo();
+    let a = r.resolve("feature~2").unwrap().to_string(); // A
+    let d = r.resolve("feature").unwrap().to_string(); // D
+    let cmp = r.compare(&spec(&a, &d)).unwrap();
+    assert_eq!(cmp.ahead.len(), 2);
+    assert!(cmp.behind.is_empty());
+    let paths: Vec<_> = r.changes(cmp.source).unwrap().into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, ["src/lib.rs", "src/new.rs"]);
+    // short SHAs and revspecs resolve too
+    assert_eq!(r.resolve(&a[..7]).unwrap().to_string(), a);
+    assert!(r.resolve("feature^").is_ok());
+}
+
+#[test]
 fn hunk_context_is_extracted() {
     assert_eq!(hunk_context("@@ -1,3 +1,4 @@ fn main() {\n"), "fn main() {");
     assert_eq!(hunk_context("@@ -1 +1 @@\n"), "");

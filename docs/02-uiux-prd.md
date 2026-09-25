@@ -118,7 +118,7 @@ default · hover (`bg.ash`) · active/pressed · focus-visible (1px frost ring) 
 
 | Situation | Pattern |
 |---|---|
-| Choose among many refs | Popover picker anchored to field; fuzzy filter; groups Local / Remote / Tags; ↑↓↵ Esc |
+| Choose among many refs | Popover picker anchored to field; fuzzy filter; groups Local Branches / Remote Branches / Tags / Recent Commits; SHA-prefix and commit-message search; free revision (`HEAD~3`) accepted; ↑↓↵ Esc |
 | Walk a list | Roving selection; ↑↓ / j k moves *and* loads diff (no extra ↵) |
 | Tree vs flat | Segmented 2-icon toggle in list header; persists |
 | Unified vs split | Segmented toggle in file header (`≡` / `⫼`), key `s` |
@@ -148,6 +148,7 @@ default · hover (`bg.ash`) · active/pressed · focus-visible (1px frost ring) 
 | w | Toggle ignore-whitespace |
 | z | Toggle soft wrap |
 | y | Copy SHA (commit) or path (file) |
+| b / c | Commits tab: set selected commit as Base / Compare |
 | / | Focus list filter |
 | Esc | Close popover / clear filter |
 

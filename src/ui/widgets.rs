@@ -125,3 +125,31 @@ pub fn thousands(n: u64) -> String {
     }
     out
 }
+
+/// Icon for a ref kind. Nerd Font glyphs when the Nerd variant is the UI font, else letters.
+pub fn ref_icon(look: super::app::RefLook, nerd: bool) -> &'static str {
+    use super::app::RefLook::*;
+    match (look, nerd) {
+        (Branch, true) => "\u{e0a0}",
+        (Remote, true) => "\u{f0c2}",
+        (Tag, true) => "\u{f02b}",
+        (Commit, true) => "\u{f417}",
+        (Rev, true) => "\u{f1da}",
+        (Branch, false) => "br",
+        (Remote, false) => "rm",
+        (Tag, false) => "tg",
+        (Commit, false) => "#",
+        (Rev, false) => "@",
+    }
+}
+
+pub fn ref_icon_color(look: super::app::RefLook) -> Hsla {
+    use super::app::RefLook::*;
+    match look {
+        Branch => theme::add_fg(),
+        Remote => theme::frost(),
+        Tag => theme::mod_fg(),
+        Commit => theme::syn_type(),
+        Rev => theme::mute(),
+    }
+}

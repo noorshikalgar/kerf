@@ -7,7 +7,7 @@ A fast, native, keyboard-first **Git branch diff viewer** built in Rust on [GPUI
 ## Features (v0.1)
 
 - Open any local repo (`kerf <path>`, ⌘O, or recents) — root auto-discovered
-- Pick **Base** and **Compare** from a fuzzy picker (local, remote, tags) — defaults to `main`/`develop` vs current branch
+- Pick **Base** and **Compare** from a fuzzy picker — branches, remotes, tags, **any commit** (recent list, SHA prefix, message search, or revisions like `HEAD~3`) — defaults to `main`/`develop` vs current branch
 - Three-dot (what Compare introduced) or two-dot (tip-to-tip) — auto two-dot for unrelated histories
 - Merge base, ahead / behind counts
 - **Files** tab: tree or flat, status glyphs, +/− counts, rename similarity, binary/generated badges, filter, viewed ticks
@@ -35,6 +35,7 @@ Requires Rust 1.85+ on macOS. GPUI is built with `runtime_shaders`, so the Xcode
 | ⌘⇧M | 3-dot / 2-dot | s | split / unified |
 | ⌘⇧F / ⌘⇧C | files / commits tab | w | ignore whitespace |
 | ⌘B | toggle sidebar | t | tree / flat |
+| b / c | commit → base / compare | | |
 | / | filter files | y | copy path / SHA |
 | space / ⇧space | page down / up | g / G | top / bottom |
 

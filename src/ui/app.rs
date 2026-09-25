@@ -5,8 +5,8 @@ use super::state::Persisted;
 use super::*;
 use crate::diff::{self, Layout, Rows};
 use crate::git::{
-    Change, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff, RangeMode,
-    RangeSpec, RefInfo, Repo,
+    short_sha, Change, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff,
+    RangeMode, RangeSpec, RefInfo, RefKind, Repo,
 };
 use crate::highlight::{self, LineSpans};
 use crate::theme;
@@ -57,7 +57,7 @@ pub enum RangeState {
 #[derive(Debug, Clone)]
 pub enum ListRow {
     Summary,
-    Dir { path: String, name: String, depth: usize, collapsed: bool },
+    Dir { path: String, name: String, depth: usize, collapsed: bool, files: usize },
     File { change: usize, depth: usize },
     Group { group: Group, count: usize, open: bool },
     Commit { group: Group, idx: usize },
@@ -109,6 +109,34 @@ pub enum DiffState {
     Error { target: Target, message: String },
 }
 
+/// One entry in the ref picker.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PickItem {
+    Ref(usize),
+    Commit(usize),
+    /// Free-form revision typed by the user (SHA, `HEAD~3`, …); validated on load.
+    Raw(String),
+}
+
+/// What a Base/Compare value points at, for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefLook {
+    Branch,
+    Remote,
+    Tag,
+    Commit,
+    Rev,
+}
+
+pub struct Described {
+    pub look: RefLook,
+    /// Branch/tag name, or short SHA for commits.
+    pub name: String,
+    /// Commit subject when the value is a commit.
+    pub subject: Option<String>,
+    pub sha: Option<String>,
+}
+
 pub struct Picker {
     pub which: Which,
     pub query: String,
@@ -132,6 +160,7 @@ pub struct Kerf {
     pub repo_error: Option<String>,
     pub repo_loading: bool,
     pub refs: Arc<Vec<RefInfo>>,
+    pub commits: Arc<Vec<CommitInfo>>,
     pub base: Option<String>,
     pub compare: Option<String>,
     pub mode: RangeMode,
@@ -198,6 +227,7 @@ impl Kerf {
             repo_error: None,
             repo_loading: false,
             refs: Arc::new(Vec::new()),
+            commits: Arc::new(Vec::new()),
             base: None,
             compare: None,
             mode: RangeMode::ThreeDot,
@@ -267,6 +297,7 @@ impl Kerf {
                 .spawn(async move {
                     let repo = Repo::open(&path)?;
                     let refs = repo.refs()?;
+                    let commits = repo.recent_commits(RECENT_COMMITS)?;
                     let root = repo.root().to_path_buf();
                     let key = root.display().to_string();
                     let range = remembered
@@ -274,13 +305,14 @@ impl Kerf {
                         .filter(|(b, c)| repo.resolve(b).is_ok() && repo.resolve(c).is_ok())
                         .cloned()
                         .or_else(|| repo.default_range(&refs));
-                    anyhow::Ok((root, repo.name(), refs, range, repo.is_empty()))
+                    anyhow::Ok((root, repo.name(), refs, commits, range, repo.is_empty()))
                 })
                 .await;
             this.update(cx, |this, cx| {
                 this.repo_loading = false;
                 match result {
-                    Ok((root, name, refs, range, empty)) => {
+                    Ok((root, name, refs, commits, range, empty)) => {
+                        this.commits = Arc::new(commits);
                         this.persisted.push_recent(root.clone());
                         this.persisted.save();
                         this.repo_path = Some(root);
@@ -325,11 +357,15 @@ impl Kerf {
         let task = cx.spawn(async move |this, cx| {
             let refs = cx
                 .background_executor()
-                .spawn(async move { Repo::open(&path).and_then(|r| r.refs()) })
+                .spawn(async move {
+                    let r = Repo::open(&path)?;
+                    anyhow::Ok((r.refs()?, r.recent_commits(RECENT_COMMITS)?))
+                })
                 .await;
             this.update(cx, |this, cx| {
-                if let Ok(refs) = refs {
+                if let Ok((refs, commits)) = refs {
                     this.refs = Arc::new(refs);
+                    this.commits = Arc::new(commits);
                 }
                 this.load_range(cx);
             })
@@ -942,28 +978,66 @@ impl Kerf {
         cx.notify();
     }
 
-    pub fn picker_matches(&self) -> Vec<(usize, Vec<usize>)> {
+    /// Picker entries for the current query. Positions index chars of the entry's label
+    /// (ref name, or `"<short> <subject>"` for commits).
+    pub fn picker_matches(&self) -> Vec<(PickItem, Vec<usize>)> {
         let Some(p) = &self.picker else { return Vec::new() };
-        let mut out: Vec<(usize, i64, Vec<usize>)> = self
-            .refs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, r)| fuzzy(&p.query, &r.name).map(|(score, pos)| (i, score, pos)))
-            .collect();
-        if !p.query.is_empty() {
-            out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        }
-        out.into_iter().map(|(i, _, pos)| (i, pos)).collect()
+        picker_items(&p.query, &self.refs, &self.commits)
     }
 
-    pub fn pick(&mut self, ref_idx: usize, cx: &mut Context<Self>) {
+    pub fn pick(&mut self, item: PickItem, cx: &mut Context<Self>) {
         let Some(p) = self.picker.take() else { return };
         self.input = Input::None;
-        if let Some(r) = self.refs.get(ref_idx) {
-            let name = r.name.clone();
-            self.set_ref(p.which, name, cx);
+        let value = match item {
+            PickItem::Ref(i) => self.refs.get(i).map(|r| r.name.clone()),
+            PickItem::Commit(i) => self.commits.get(i).map(|c| c.oid.to_string()),
+            PickItem::Raw(s) => Some(s),
+        };
+        if let Some(v) = value {
+            self.set_ref(p.which, v, cx);
         }
         cx.notify();
+    }
+
+    /// Sets the selected commit (Commits tab) as base or compare.
+    fn set_selected_commit(&mut self, which: Which, cx: &mut Context<Self>) {
+        let Some(ListRow::Commit { group, idx }) = self.selected.and_then(|i| self.rows.get(i)).cloned() else { return };
+        let Some(c) = self.commit(group, idx).cloned() else { return };
+        self.set_ref(which, c.oid.to_string(), cx);
+        let label = if which == Which::Base { "Base" } else { "Compare" };
+        self.flash(format!("{label} → {} {}", c.short(), c.summary), cx);
+    }
+
+    /// How to show a Base/Compare value: branch/tag name, or commit SHA + subject.
+    pub fn describe(&self, value: &str) -> Described {
+        if let Some(r) = self.refs.iter().find(|r| r.name == value) {
+            let look = match r.kind {
+                RefKind::Local => RefLook::Branch,
+                RefKind::Remote => RefLook::Remote,
+                RefKind::Tag => RefLook::Tag,
+            };
+            return Described { look, name: r.name.clone(), subject: None, sha: Some(short_sha(r.target)) };
+        }
+        if is_hex(value) && value.len() >= 7 {
+            let c = self.commits.iter().find(|c| c.oid.to_string().starts_with(&value.to_lowercase()));
+            let short = value[..7].to_string();
+            return Described {
+                look: RefLook::Commit,
+                name: short.clone(),
+                subject: c.map(|c| c.summary.clone()),
+                sha: Some(short),
+            };
+        }
+        Described { look: RefLook::Rev, name: value.to_string(), subject: None, sha: None }
+    }
+
+    pub fn nerd(&self) -> bool {
+        self.font.contains("Nerd")
+    }
+
+    /// Short display form used in the titlebar / status bar.
+    pub fn display_ref(&self, value: &str) -> String {
+        self.describe(value).name
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
@@ -1058,7 +1132,7 @@ impl Kerf {
 
     fn update_title(&self, window: &mut Window) {
         let title = match (&self.repo_path, &self.base, &self.compare) {
-            (Some(_), Some(b), Some(c)) => format!("{} — {b} … {c}", self.repo_name),
+            (Some(_), Some(b), Some(c)) => format!("{} — {} … {}", self.repo_name, self.display_ref(b), self.display_ref(c)),
             (Some(_), _, _) => self.repo_name.clone(),
             _ => "Kerf".into(),
         };
@@ -1117,8 +1191,8 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &Confirm, _, cx| match this.input {
                 Input::Picker => {
                     let sel = this.picker.as_ref().map(|p| p.selected).unwrap_or(0);
-                    if let Some((i, _)) = this.picker_matches().get(sel).cloned() {
-                        this.pick(i, cx);
+                    if let Some((item, _)) = this.picker_matches().get(sel).cloned() {
+                        this.pick(item, cx);
                     }
                 }
                 Input::Filter => {
@@ -1156,6 +1230,8 @@ impl Render for Kerf {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &CopyItem, _, cx| this.copy_item(cx)))
+            .on_action(cx.listener(|this, _: &SetBase, _, cx| this.set_selected_commit(Which::Base, cx)))
+            .on_action(cx.listener(|this, _: &SetCompare, _, cx| this.set_selected_commit(Which::Compare, cx)))
             .on_action(cx.listener(|this, _: &FocusFilter, _, cx| {
                 if this.tab == Tab::Files {
                     this.input = Input::Filter;
@@ -1258,39 +1334,50 @@ impl Kerf {
     }
 }
 
+#[derive(Default)]
+struct Node<'a> {
+    dirs: std::collections::BTreeMap<&'a str, Node<'a>>,
+    files: Vec<usize>,
+    /// Changed files anywhere below this directory.
+    count: usize,
+}
+
 /// Directory tree rows for `visible` changes (indices into `changes`, sorted by path).
-/// Children of collapsed directories are omitted.
+/// Folders come first; single-child folder chains merge into one row (`src/ui/`, like Zed);
+/// children of collapsed folders are omitted.
 pub fn tree_rows(changes: &[Change], visible: &[usize], collapsed: &HashSet<String>) -> Vec<ListRow> {
-    let mut rows = Vec::new();
-    // Stack of currently open ancestor directory paths.
-    let mut open: Vec<String> = Vec::new();
+    let mut root = Node::default();
     for &i in visible {
-        let path = &changes[i].path;
-        let parts: Vec<&str> = path.split('/').collect();
-        let dirs = &parts[..parts.len() - 1];
-        let keep = open
-            .iter()
-            .enumerate()
-            .take_while(|(k, d)| *k < dirs.len() && **d == dirs[..=*k].join("/"))
-            .count();
-        open.truncate(keep);
-        for k in keep..dirs.len() {
-            let full = dirs[..=k].join("/");
-            if !open.iter().any(|d| collapsed.contains(d)) {
-                rows.push(ListRow::Dir {
-                    path: full.clone(),
-                    name: dirs[k].to_string(),
-                    depth: k,
-                    collapsed: collapsed.contains(&full),
-                });
-            }
-            open.push(full);
+        let parts: Vec<&str> = changes[i].path.split('/').collect();
+        let mut node = &mut root;
+        for dir in &parts[..parts.len() - 1] {
+            node = node.dirs.entry(dir).or_default();
+            node.count += 1;
         }
-        if !open.iter().any(|d| collapsed.contains(d)) {
-            rows.push(ListRow::File { change: i, depth: dirs.len() });
+        node.files.push(i);
+    }
+    let mut rows = Vec::new();
+    flatten(&root, "", 0, collapsed, &mut rows);
+    rows
+}
+
+fn flatten(node: &Node<'_>, prefix: &str, depth: usize, collapsed: &HashSet<String>, rows: &mut Vec<ListRow>) {
+    for (name, mut child) in node.dirs.iter().map(|(n, c)| (n.to_string(), c)) {
+        let mut label = name;
+        let mut path = if prefix.is_empty() { label.clone() } else { format!("{prefix}/{label}") };
+        while child.files.is_empty() && child.dirs.len() == 1 {
+            let (n2, c2) = child.dirs.iter().next().unwrap();
+            label = format!("{label}/{n2}");
+            path = format!("{path}/{n2}");
+            child = c2;
+        }
+        let is_collapsed = collapsed.contains(&path);
+        rows.push(ListRow::Dir { path: path.clone(), name: label, depth, collapsed: is_collapsed, files: child.count });
+        if !is_collapsed {
+            flatten(child, &path, depth + 1, collapsed, rows);
         }
     }
-    rows
+    rows.extend(node.files.iter().map(|&change| ListRow::File { change, depth }));
 }
 
 fn row_identity(r: &ListRow) -> String {
@@ -1303,6 +1390,55 @@ fn row_identity(r: &ListRow) -> String {
         ListRow::CommitFile { change } => format!("cf:{change}"),
         ListRow::Notice(n) => format!("n:{n}"),
     }
+}
+
+/// Commits offered in the picker (newest across local branches).
+const RECENT_COMMITS: usize = 300;
+/// Commits listed in the picker when the query is empty.
+const COMMITS_WHEN_EMPTY: usize = 30;
+
+fn is_hex(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+pub fn commit_label(c: &CommitInfo) -> String {
+    format!("{} {}", c.short(), c.summary)
+}
+
+/// Builds picker entries: refs (grouped when the query is empty) then recent commits.
+/// With a query, everything is ranked together; SHA-prefix hits on commits rank first.
+/// A query that looks like a revision (hex ≥ 4, or contains `~ ^ @`) also offers `Raw`.
+pub fn picker_items(query: &str, refs: &[RefInfo], commits: &[CommitInfo]) -> Vec<(PickItem, Vec<usize>)> {
+    let mut out: Vec<(PickItem, i64, Vec<usize>)> = refs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| fuzzy(query, &r.name).map(|(s, pos)| (PickItem::Ref(i), s, pos)))
+        .collect();
+    let q = query.to_lowercase();
+    for (i, c) in commits.iter().enumerate() {
+        if query.is_empty() {
+            if i < COMMITS_WHEN_EMPTY {
+                out.push((PickItem::Commit(i), i64::MIN, Vec::new()));
+            }
+            continue;
+        }
+        let sha = c.oid.to_string();
+        if is_hex(&q) && q.len() >= 4 && sha.starts_with(&q) {
+            out.push((PickItem::Commit(i), 10_000, (0..q.len().min(7)).collect()));
+        } else if let Some((s, pos)) = fuzzy(query, &commit_label(c)) {
+            // Commits rank below refs with the same score: branch names are the common case.
+            out.push((PickItem::Commit(i), s - 50, pos));
+        }
+    }
+    if !query.is_empty() {
+        out.sort_by_key(|x| std::cmp::Reverse(x.1));
+    }
+    let revish = (is_hex(&q) && q.len() >= 4) || query.contains(['~', '^', '@']);
+    let exact_sha = out.iter().any(|(it, s, _)| matches!(it, PickItem::Commit(_)) && *s == 10_000);
+    if revish && !exact_sha {
+        out.push((PickItem::Raw(query.to_string()), 0, Vec::new()));
+    }
+    out.into_iter().map(|(i, _, p)| (i, p)).collect()
 }
 
 fn digits(n: u32) -> usize {
@@ -1410,7 +1546,7 @@ mod tests {
         let rows = tree_rows(&changes, &visible, &HashSet::new());
         assert_eq!(
             render(&rows, &changes),
-            ["README.md", "src/", "  a/", "    x.rs", "    y.rs", "  b.rs", "tests/", "  t.rs"]
+            ["src/", "  a/", "    x.rs", "    y.rs", "  b.rs", "tests/", "  t.rs", "README.md"]
         );
     }
 
@@ -1418,7 +1554,21 @@ mod tests {
     fn tree_same_name_dirs_under_different_parents() {
         let changes: Vec<Change> = ["a/lib/x.rs", "b/lib/y.rs"].iter().map(|p| ch(p)).collect();
         let rows = tree_rows(&changes, &[0, 1], &HashSet::new());
-        assert_eq!(render(&rows, &changes), ["a/", "  lib/", "    x.rs", "b/", "  lib/", "    y.rs"]);
+        assert_eq!(render(&rows, &changes), ["a/lib/", "  x.rs", "b/lib/", "  y.rs"]);
+    }
+
+    #[test]
+    fn tree_compresses_single_child_chains_and_counts_files() {
+        let changes: Vec<Change> = ["src/ui/app.rs", "src/ui/mod.rs", "src/git/mod.rs"].iter().map(|p| ch(p)).collect();
+        let rows = tree_rows(&changes, &[0, 1, 2], &HashSet::new());
+        assert_eq!(render(&rows, &changes), ["src/", "  git/", "    mod.rs", "  ui/", "    app.rs", "    mod.rs"]);
+        let deep: Vec<Change> = ["a/b/c/d.rs"].iter().map(|p| ch(p)).collect();
+        let rows = tree_rows(&deep, &[0], &HashSet::new());
+        assert_eq!(render(&rows, &deep), ["a/b/c/", "  d.rs"]);
+        match &rows[0] {
+            ListRow::Dir { path, files, .. } => assert_eq!((path.as_str(), *files), ("a/b/c", 1)),
+            _ => panic!(),
+        }
     }
 
     #[test]
@@ -1427,6 +1577,47 @@ mod tests {
         let collapsed: HashSet<String> = ["src".to_string()].into();
         let rows = tree_rows(&changes, &[0, 1, 2], &collapsed);
         assert_eq!(render(&rows, &changes), ["+src/", "z.rs"]);
+    }
+
+    fn refs_and_commits() -> (Vec<crate::git::RefInfo>, Vec<crate::git::CommitInfo>) {
+        use crate::git::{CommitInfo, RefInfo, RefKind};
+        use git2::Oid;
+        let oid = |h: &str| Oid::from_str(&format!("{h:0<40}")).unwrap();
+        let r = |n: &str| RefInfo { name: n.into(), kind: RefKind::Local, target: oid("1"), summary: String::new(), time: 0, is_head: false };
+        let c = |h: &str, s: &str| CommitInfo { oid: oid(h), summary: s.into(), message: s.into(), author: "a".into(), time: 0, parent_count: 1 };
+        (
+            vec![r("main"), r("feature/login")],
+            vec![c("abc1234", "fix login bug"), c("def5678", "add readme")],
+        )
+    }
+
+    #[test]
+    fn picker_empty_query_lists_refs_then_commits() {
+        use super::{picker_items, PickItem};
+        let (refs, commits) = refs_and_commits();
+        let items: Vec<PickItem> = picker_items("", &refs, &commits).into_iter().map(|(i, _)| i).collect();
+        assert_eq!(items, [PickItem::Ref(0), PickItem::Ref(1), PickItem::Commit(0), PickItem::Commit(1)]);
+    }
+
+    #[test]
+    fn picker_sha_prefix_ranks_commit_first() {
+        use super::{picker_items, PickItem};
+        let (refs, commits) = refs_and_commits();
+        let items = picker_items("def5", &refs, &commits);
+        assert_eq!(items[0].0, PickItem::Commit(1));
+        assert!(!items.iter().any(|(i, _)| matches!(i, PickItem::Raw(_))));
+    }
+
+    #[test]
+    fn picker_searches_commit_subjects_and_offers_raw_revisions() {
+        use super::{picker_items, PickItem};
+        let (refs, commits) = refs_and_commits();
+        let items: Vec<PickItem> = picker_items("readme", &refs, &commits).into_iter().map(|(i, _)| i).collect();
+        assert_eq!(items, [PickItem::Commit(1)]);
+        let raw = picker_items("HEAD~3", &refs, &commits);
+        assert_eq!(raw.last().unwrap().0, PickItem::Raw("HEAD~3".into()));
+        let unknown_sha = picker_items("9999999", &refs, &commits);
+        assert_eq!(unknown_sha.last().unwrap().0, PickItem::Raw("9999999".into()));
     }
 
     #[test]
