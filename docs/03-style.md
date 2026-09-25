@@ -105,7 +105,7 @@ Toggles use **words**, not glyphs (`Unified`, `Split`, `Ignore WS`, `Tree`, `Lis
 | **Gap row** | 20h, `bg.void`, centred `⋯ N unchanged lines` `ink.faint`→hover `ink.mute` |
 | **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
 | **Spinner** | 3-dot pulse in `ink.mute`, 12px |
-| **Scrollbar** | 10px track, draggable thumb (min 24px) — grab or click-to-jump; wheel scroll too. Diff bar carries hunk markers in add/del fg |
+| **Scrollbar** | 12px track, opaque thumb `#666360` (3.3:1 on abyss), hover `#8f8a82`, dragging frost, 1px black edge so it reads over hunk markers (markers at 55% opacity). Draggable (min 24px) — grab or click-to-jump; wheel scroll too. Diff bar carries hunk markers in add/del fg |
 
 ## 6. Measured contrast (WCAG 2.2)
 

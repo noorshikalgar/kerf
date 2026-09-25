@@ -32,7 +32,9 @@ pub fn del_emph() -> Hsla { c(0x44161a) }
 pub fn mod_fg() -> Hsla { c(0xd4a95e) }
 
 // Scrollbar
-pub fn thumb() -> Hsla { c(0x2a2a2a) }
+pub fn thumb() -> Hsla { c(0x666360) }
+pub fn thumb_hover() -> Hsla { c(0x8f8a82) }
+pub fn thumb_active() -> Hsla { c(0xa9c4d9) }
 
 // Syntax
 pub fn syn_keyword() -> Hsla { c(0xc8c2b8) }

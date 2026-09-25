@@ -316,11 +316,12 @@ impl Kerf {
             marks.push(
                 div()
                     .absolute()
-                    .left(px(2.))
-                    .right(px(2.))
+                    .left(px(3.))
+                    .right(px(3.))
                     .top(relative(i as f32 / total))
                     .h(px(2.))
                     .bg(color)
+                    .opacity(0.55)
                     .into_any_element(),
             );
         }

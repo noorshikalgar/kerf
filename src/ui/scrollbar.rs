@@ -7,7 +7,7 @@ use gpui::{div, point, prelude::*, px, AnyElement, Context, MouseButton, MouseDo
 
 /// Smallest thumb, so it stays grabbable on huge lists.
 pub const MIN_THUMB: f32 = 24.;
-pub const WIDTH: f32 = 10.;
+pub const WIDTH: f32 = 12.;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Bar {
@@ -150,10 +150,12 @@ impl Kerf {
                         .right(px(2.))
                         .top(px(m.thumb_top()))
                         .h(px(m.thumb_h()))
-                        .rounded(px(3.))
-                        .bg(if dragging { theme::mute() } else { theme::thumb() })
-                        .when(bar == Bar::Diff, |d| d.bg(if dragging { gpui::hsla(0., 0., 1., 0.22) } else { gpui::hsla(0., 0., 1., 0.10) }))
-                        .hover(|s| s.bg(theme::line_hi())),
+                        .rounded(px(4.))
+                        // Opaque, and bordered in black so it stays visible over dense hunk markers.
+                        .border_1()
+                        .border_color(theme::void())
+                        .bg(if dragging { theme::thumb_active() } else { theme::thumb() })
+                        .hover(|s| s.bg(theme::thumb_hover())),
                 )
             })
             .into_any_element()
