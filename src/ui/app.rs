@@ -287,6 +287,8 @@ pub struct Kerf {
     /// Set by double-click / Enter so the next opened file gets a pinned tab.
     pub pin_next: bool,
     pub info_open: bool,
+    /// Comparison section expanded in the sidebar.
+    pub range_open: bool,
     pub shortcuts_open: bool,
     pub scratch_seq: u64,
 
@@ -354,6 +356,7 @@ impl Kerf {
             active_tab: None,
             pin_next: false,
             info_open: false,
+            range_open: true,
             shortcuts_open: false,
             scratch_seq: 0,
             picker: None,
@@ -363,6 +366,7 @@ impl Kerf {
             flash: None,
             flash_task: None,
         };
+        this.range_open = !this.persisted.range_collapsed;
         match launch {
             super::Launch::Files(a, b) => this.open_files_diff(a, b, cx),
             super::Launch::Repo(p) => this.open_repo(p, cx),
@@ -1556,6 +1560,16 @@ impl Render for Kerf {
                     }
                 }
             }))
+            // Clicking anywhere ends search mode; the search field's own click re-enters it.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.input == Input::Filter {
+                        this.input = Input::None;
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
                 if this.scroll_drag.is_some() {
                     if ev.pressed_button != Some(MouseButton::Left) {

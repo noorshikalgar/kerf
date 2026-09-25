@@ -122,6 +122,7 @@ impl Kerf {
             .when(self.repo_path.is_some(), |d| {
                 d.child(self.render_range_bar(cx))
                     .child(self.render_tabs(cx))
+                    .when(self.tab == Tab::Files && self.range_data().is_some(), |d| d.child(self.render_list_toolbar(cx)))
                     .child(self.render_list(window, cx))
             })
     }
@@ -300,18 +301,70 @@ impl Kerf {
             })
     }
 
+    /// Collapsible "Comparison" section: what vs what, which view, and the range facts.
+    /// Collapsed it keeps a one-line summary so context is never lost.
     fn render_range_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let data = self.range_data().cloned();
         let unrelated = data.as_ref().is_some_and(|d| d.cmp.unrelated());
-        div()
-            .flex_none()
+        let open = self.range_open;
+        let mode = if unrelated { RangeMode::Compare } else { self.mode };
+        let summary = match (&self.base, &self.compare) {
+            (Some(b), Some(c)) => format!("{} … {} · {}", self.display_ref(b), self.display_ref(c), mode.short()),
+            _ => "Pick base and compare".into(),
+        };
+        let pills = || -> Vec<AnyElement> {
+            match (&self.range, &data) {
+                (RangeState::Loading, _) => vec![widgets::spinner().into_any_element()],
+                (_, Some(data)) => vec![
+                    stat_pill(format!("↑ {}", data.cmp.ahead.len()), theme::add_fg(), "Commits in compare, not in base").into_any_element(),
+                    stat_pill(format!("↓ {}", data.cmp.behind.len()), theme::mod_fg(), "Commits in base, not in compare").into_any_element(),
+                ],
+                _ => Vec::new(),
+            }
+        };
+        let nerd = self.nerd();
+
+        let header = div()
+            .id("comparison-header")
+            .h(px(34.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pl(px(6.))
+            .pr(px(12.))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::ash()))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.range_open = !this.range_open;
+                this.persisted.range_collapsed = !this.range_open;
+                this.persisted.save();
+                cx.notify();
+            }))
+            .child(widgets::chevron(open, nerd))
+            .child(div().flex_none().text_size(theme::TEXT_CONTROL).font_weight(gpui::FontWeight::MEDIUM).text_color(theme::body()).child("Comparison"))
+            .when(!open, |d| {
+                d.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(theme::TEXT_CONTROL)
+                        .text_color(theme::mute())
+                        .child(summary),
+                )
+                .children(pills())
+            })
+            .when(open, |d| d.child(div().flex_1()));
+
+        let body = div()
             .flex()
             .flex_col()
-            .gap(px(8.))
+            .gap(px(10.))
             .px(px(12.))
-            .py(px(10.))
-            .border_b_1()
-            .border_color(theme::line())
+            .pb(px(12.))
+            // 1. What vs what
             .child(
                 div()
                     .flex()
@@ -346,41 +399,62 @@ impl Kerf {
                             .child("⇅"),
                     ),
             )
+            .child(div().h(px(1.)).bg(theme::line()))
+            // 2. Which view
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .gap(px(4.))
+                    .flex_col()
+                    .gap(px(6.))
                     .child(
-                        seg("mode-pr", RangeMode::PrMerge.short(), self.mode == RangeMode::PrMerge && !unrelated, "PR Merge View — only what compare adds (like a GitHub PR)  ⌘⇧M")
-                            .when(unrelated, |d| d.opacity(0.4))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if this.mode != RangeMode::PrMerge {
-                                    this.toggle_mode(cx)
-                                }
-                            })),
+                        div()
+                            .flex()
+                            .items_center()
+                            .child(micro("View"))
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .id("mode-help")
+                                    .w(px(22.))
+                                    .h(px(22.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(theme::RADIUS)
+                                    .text_size(theme::TEXT_LIST)
+                                    .text_color(if self.info_open { theme::frost() } else { theme::mute() })
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                                    .tooltip(|_, cx| cx.new(|_| widgets::Tip("How do the two views differ?")).into())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.info_open = !this.info_open;
+                                        cx.notify();
+                                    }))
+                                    .child(if nerd { "\u{ea74}" } else { "?" }),
+                            ),
                     )
-                    .child(
-                        seg("mode-cmp", RangeMode::Compare.short(), self.mode == RangeMode::Compare || unrelated, "Compare View — full difference between the two tips  ⌘⇧M")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if this.mode != RangeMode::Compare {
-                                    this.toggle_mode(cx)
-                                }
-                            })),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        seg("mode-help", "?", self.info_open, "What's the difference?  F1")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.info_open = !this.info_open;
-                                cx.notify();
-                            })),
-                    ),
+                    .child(self.view_switch(unrelated, cx))
+                    .when_some(self.mode_sentence(), |d, (text, warn)| {
+                        d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(text)).when_some(warn, |d, w| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .gap(px(6.))
+                                    .px(px(8.))
+                                    .py(px(6.))
+                                    .rounded(theme::RADIUS)
+                                    .bg(theme::mod_fg().opacity(0.08))
+                                    .border_l_2()
+                                    .border_color(theme::mod_fg())
+                                    .text_size(theme::TEXT_CONTROL)
+                                    .text_color(theme::mod_fg())
+                                    .child(div().flex_none().child("⚠"))
+                                    .child(div().flex_1().min_w_0().child(w)),
+                            )
+                        })
+                    }),
             )
-            .when_some(self.mode_sentence(), |d, (text, warn)| {
-                d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::body()).child(text))
-                    .when_some(warn, |d, w| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mod_fg()).child(w)))
-            })
+            // 3. Range facts
             .child(
                 div()
                     .flex()
@@ -399,13 +473,7 @@ impl Kerf {
                         )
                     })
                     .child(div().flex_1())
-                    .map(|d| match (&self.range, &data) {
-                        (RangeState::Loading, _) => d.child(widgets::spinner()),
-                        (_, Some(data)) => d
-                            .child(stat_pill(format!("↑ {}", data.cmp.ahead.len()), theme::add_fg(), "Commits in compare, not in base"))
-                            .child(stat_pill(format!("↓ {}", data.cmp.behind.len()), theme::mod_fg(), "Commits in base, not in compare")),
-                        _ => d,
-                    }),
+                    .children(pills()),
             )
             .when_some(
                 match &self.range {
@@ -413,7 +481,57 @@ impl Kerf {
                     _ => None,
                 },
                 |d, e| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::del_fg()).child(e)),
-            )
+            );
+
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(theme::line())
+            .child(header)
+            .when(open, |d| d.child(body))
+    }
+
+    /// Full-width segmented control: PR Merge | Compare.
+    fn view_switch(&self, unrelated: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let item = |mode: RangeMode, tip: &'static str, cx: &mut Context<Kerf>| {
+            let active = if unrelated { mode == RangeMode::Compare } else { self.mode == mode };
+            let disabled = unrelated && mode == RangeMode::PrMerge;
+            div()
+                .id(mode.short())
+                .flex_1()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(theme::RADIUS)
+                .text_size(theme::TEXT_CONTROL)
+                .when(active, |d| d.bg(theme::slate()).text_color(theme::bone()).font_weight(gpui::FontWeight::MEDIUM))
+                .when(!active && !disabled, |d| {
+                    d.text_color(theme::mute()).cursor_pointer().hover(|s| s.text_color(theme::bone()))
+                })
+                .when(disabled, |d| d.text_color(theme::faint()))
+                .tooltip(move |_, cx| cx.new(|_| widgets::Tip(tip)).into())
+                .when(!disabled, |d| {
+                    d.on_click(cx.listener(move |this, _, _, cx| {
+                        if this.mode != mode {
+                            this.toggle_mode(cx)
+                        }
+                    }))
+                })
+                .child(mode.label())
+        };
+        div()
+            .flex()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(theme::RADIUS)
+            .bg(theme::crypt())
+            .border_1()
+            .border_color(theme::line_hi())
+            .child(item(RangeMode::PrMerge, "Only what compare adds — like a GitHub PR  ⌘⇧M", cx))
+            .child(item(RangeMode::Compare, "Full difference between the two tips  ⌘⇧M", cx))
     }
 
     /// Plain-language description of the current mode, plus a warning when it can mislead.
@@ -434,13 +552,14 @@ impl Kerf {
                 (
                     format!("Everything that differs between {b} and {c} right now."),
                     (behind > 0).then(|| {
-                        format!("⚠ {behind} commit{} only on {b} appear as removals.", if behind == 1 { "" } else { "s" })
+                        format!("{behind} commit{} only on {b} will show as removals.", if behind == 1 { "" } else { "s" })
                     }),
                 )
             }
         })
     }
 
+    /// Tab strip — tabs only. Tools for the active tab live in `render_list_toolbar`.
     fn render_tabs(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let (files, commits) = self
             .range_data()
@@ -450,92 +569,147 @@ impl Kerf {
             let active = this.tab == t;
             div()
                 .id(label)
-                .h(px(28.))
+                .flex_1()
+                .h_full()
+                .relative()
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap(px(6.))
-                .px(px(4.))
                 .cursor_pointer()
-                .border_b_1()
-                .border_color(if active { theme::frost() } else { gpui::transparent_black() })
+                .when(!active, |d| d.hover(|s| s.bg(theme::ash())))
                 .on_click(cx.listener(move |this, _, _, cx| this.set_tab(t, cx)))
                 .child(
                     div()
-                        .text_size(theme::TEXT_CONTROL)
+                        .text_size(theme::TEXT_LIST)
+                        .font_weight(if active { gpui::FontWeight::MEDIUM } else { gpui::FontWeight::NORMAL })
                         .text_color(if active { theme::bone() } else { theme::mute() })
                         .child(label),
                 )
-                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(widgets::thousands(n as u64)))
+                .child(
+                    div()
+                        .px(px(6.))
+                        .rounded(px(8.))
+                        .bg(if active { theme::slate() } else { theme::crypt() })
+                        .text_size(theme::TEXT_CONTROL)
+                        .text_color(if active { theme::body() } else { theme::mute() })
+                        .child(widgets::thousands(n as u64)),
+                )
+                .when(active, |d| d.child(div().absolute().bottom_0().left(px(12.)).right(px(12.)).h(px(2.)).bg(theme::frost())))
         };
-        let filtering = self.input == Input::Filter;
         div()
             .flex_none()
+            .h(px(36.))
+            .flex()
             .border_b_1()
             .border_color(theme::line())
+            .child(tab(self, Tab::Files, "Files", files, cx))
+            .child(tab(self, Tab::Commits, "Commits", commits, cx))
+    }
+
+    /// Files tab toolbar: search field + tree/list switch.
+    fn render_list_toolbar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let filtering = self.input == Input::Filter;
+        let nerd = self.nerd();
+        let has_text = !self.filter.is_empty();
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .px(px(12.))
+            .py(px(8.))
             .child(
                 div()
+                    .id("filter")
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(28.))
                     .flex()
-                    .items_end()
-                    .gap(px(12.))
-                    .px(px(12.))
-                    .child(tab(self, Tab::Files, "Files", files, cx))
-                    .child(tab(self, Tab::Commits, "Commits", commits, cx))
-                    .child(div().flex_1())
-                    .when(self.tab == Tab::Files, |d| {
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .bg(theme::crypt())
+                    .border_1()
+                    .border_color(if filtering { theme::frost() } else { theme::line_hi() })
+                    .rounded(theme::RADIUS)
+                    .cursor_text()
+                    .text_size(theme::TEXT_LIST)
+                    .hover(|s| s.border_color(theme::mute()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.input = Input::Filter;
+                        cx.notify();
+                    }))
+                    .child(div().flex_none().text_color(theme::mute()).child(if nerd { "\u{ea6d}" } else { "⌕" }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .map(|d| {
+                                if !has_text && !filtering {
+                                    d.text_color(theme::mute()).child("Search files")
+                                } else {
+                                    d.text_color(theme::bone())
+                                        .child(self.filter.clone())
+                                        .when(filtering, |d| d.child(div().w(px(1.)).h(px(16.)).bg(theme::frost())))
+                                }
+                            }),
+                    )
+                    .when(has_text, |d| {
                         d.child(
                             div()
+                                .id("filter-clear")
+                                .flex_none()
+                                .w(px(18.))
+                                .h(px(18.))
                                 .flex()
-                                .pb(px(3.))
-                                .child(
-                                    seg("tree", "Tree", self.tree, "Tree view  t")
-                                        .on_click(cx.listener(|this, _, w, cx| {
-                                            if !this.tree {
-                                                w.dispatch_action(Box::new(super::ToggleTree), cx);
-                                            }
-                                        })),
-                                )
-                                .child(
-                                    seg("flat", "List", !self.tree, "Flat list  t")
-                                        .on_click(cx.listener(|this, _, w, cx| {
-                                            if this.tree {
-                                                w.dispatch_action(Box::new(super::ToggleTree), cx);
-                                            }
-                                        })),
-                                ),
+                                .items_center()
+                                .justify_center()
+                                .rounded(theme::RADIUS)
+                                .text_color(theme::mute())
+                                .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.filter.clear();
+                                    this.input = Input::None;
+                                    this.selected = None;
+                                    this.rebuild_rows();
+                                    cx.notify();
+                                }))
+                                .child(if nerd { "\u{ea76}" } else { "✕" }),
                         )
                     }),
             )
-            .when(self.tab == Tab::Files, |d| {
-                d.child(
-                    div()
-                        .id("filter")
-                        .mx(px(12.))
-                        .my(px(6.))
-                        .h(theme::CONTROL_H)
-                        .flex()
-                        .items_center()
-                        .px(px(8.))
-                        .bg(theme::crypt())
-                        .border_1()
-                        .border_color(if filtering { theme::frost() } else { theme::line_hi() })
-                        .rounded(theme::RADIUS)
-                        .cursor_text()
-                        .text_size(theme::TEXT_LIST)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.input = Input::Filter;
-                            cx.notify();
-                        }))
-                        .map(|d| {
-                            if self.filter.is_empty() && !filtering {
-                                d.text_color(theme::mute()).child("Filter files…")
-                            } else {
-                                d.text_color(theme::bone())
-                                    .child(self.filter.clone())
-                                    .when(filtering, |d| d.child(div().w(px(1.)).h(px(14.)).bg(theme::frost())))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .p(px(2.))
+                    .gap(px(2.))
+                    .rounded(theme::RADIUS)
+                    .bg(theme::crypt())
+                    .border_1()
+                    .border_color(theme::line_hi())
+                    .child(
+                        seg("tree", "Tree", self.tree, "Folders  t").on_click(cx.listener(|this, _, w, cx| {
+                            if !this.tree {
+                                w.dispatch_action(Box::new(super::ToggleTree), cx);
                             }
-                        }),
-                )
-            })
+                        })),
+                    )
+                    .child(
+                        seg("flat", "List", !self.tree, "Flat list of paths  t").on_click(cx.listener(|this, _, w, cx| {
+                            if this.tree {
+                                w.dispatch_action(Box::new(super::ToggleTree), cx);
+                            }
+                        })),
+                    ),
+            )
     }
 
     fn render_list(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

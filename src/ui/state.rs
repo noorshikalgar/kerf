@@ -21,6 +21,8 @@ pub struct Persisted {
     pub tree: bool,
     #[serde(default)]
     pub sidebar_w: Option<f32>,
+    #[serde(default)]
+    pub range_collapsed: bool,
 }
 
 fn yes() -> bool {
