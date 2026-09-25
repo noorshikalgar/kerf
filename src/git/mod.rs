@@ -312,6 +312,7 @@ impl Repo {
             non_utf8: false,
             old_no_newline: false,
             new_no_newline: false,
+            unchanged: None,
         };
         if change.is_submodule() {
             fd.body = DiffBody::Submodule { old: change.old_oid, new: change.new_oid };
@@ -364,6 +365,7 @@ pub fn diff_buffers(old: &[u8], new: &[u8], old_label: &str, new_label: &str, op
         non_utf8: false,
         old_no_newline: false,
         new_no_newline: false,
+        unchanged: None,
     };
     if !opts.force && fd.old_size.max(fd.new_size) > opts.max_bytes {
         fd.body = DiffBody::TooLarge;
@@ -454,6 +456,19 @@ fn fill_text_diff(
                 first_line,
                 line_count: fd.lines.len() - first_line,
             });
+        }
+        if fd.lines.is_empty() && !(old_bytes.is_empty() && new_bytes.is_empty()) {
+            // Nothing changed (or only ignored whitespace): show the whole file as context.
+            fd.unchanged = Some(if old_bytes == new_bytes { Unchanged::Identical } else { Unchanged::WhitespaceOnly });
+            let src = String::from_utf8_lossy(new_bytes);
+            for (i, l) in src.lines().enumerate() {
+                let start = text.len();
+                text.push_str(l.trim_end_matches('\r'));
+                let n = i as u32 + 1;
+                fd.lines.push(DiffLine { kind: LineKind::Context, old_no: Some(n), new_no: Some(n), range: start..text.len() });
+            }
+            let n = fd.lines.len() as u32;
+            fd.hunks.push(Hunk { old_start: 1, old_lines: n, new_start: 1, new_lines: n, context: String::new(), first_line: 0, line_count: n as usize });
         }
         fd.text = Arc::from(text);
         Ok(())

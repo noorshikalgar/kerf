@@ -719,6 +719,23 @@ fn render_row(l: &Arc<Loaded>, ix: usize, cx: &mut Context<Kerf>) -> AnyElement 
             .text_size(theme::TEXT_CODE)
     };
     match &l.rows.rows[ix] {
+        Row::Hunk(_) if l.fd.unchanged.is_some() => {
+            let (text, color) = match l.fd.unchanged {
+                Some(crate::git::Unchanged::WhitespaceOnly) => {
+                    ("Only whitespace differs — ignored. Press w to show whitespace changes.", theme::mod_fg())
+                }
+                _ => ("Identical — no differences. Showing the full content.", theme::frost()),
+            };
+            row_base()
+                .bg(theme::crypt())
+                .pl(px(12.))
+                .gap(px(8.))
+                .text_size(theme::TEXT_CONTROL)
+                .text_color(color)
+                .child("●")
+                .child(text)
+                .into_any_element()
+        }
         Row::Hunk(h) => {
             let h = &l.fd.hunks[*h];
             row_base()

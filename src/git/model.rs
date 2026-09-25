@@ -249,6 +249,17 @@ pub struct FileDiff {
     pub non_utf8: bool,
     pub old_no_newline: bool,
     pub new_no_newline: bool,
+    /// Set when there is nothing to show as changed; `lines` then holds the full
+    /// content as context so the user still sees the file.
+    pub unchanged: Option<Unchanged>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unchanged {
+    /// Byte-identical sides.
+    Identical,
+    /// Differences exist but are all whitespace, and whitespace is being ignored.
+    WhitespaceOnly,
 }
 
 impl FileDiff {

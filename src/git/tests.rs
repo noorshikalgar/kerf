@@ -282,6 +282,9 @@ fn ignore_whitespace_hides_reindent() {
         .file_diff(&changes[0], DiffOptions { ignore_whitespace: true, ..Default::default() })
         .unwrap();
     assert_eq!(ws.additions(), 0);
+    // Still shows the file, flagged as whitespace-only.
+    assert_eq!(ws.unchanged, Some(Unchanged::WhitespaceOnly));
+    assert_eq!(ws.lines.len(), 2);
 }
 
 #[test]
@@ -345,8 +348,12 @@ fn diff_buffers_without_repo() {
     assert!(matches!(d.body, DiffBody::Text));
     assert_eq!((d.additions(), d.deletions()), (2, 1));
     assert_eq!(d.path, "right.txt");
-    let same = diff_buffers(b"x\n", b"x\n", "l", "r", DiffOptions::default()).unwrap();
-    assert!(same.lines.is_empty());
+    let same = diff_buffers(b"x\ny\n", b"x\ny\n", "l", "r", DiffOptions::default()).unwrap();
+    assert_eq!(same.unchanged, Some(Unchanged::Identical));
+    assert_eq!(same.lines.len(), 2);
+    assert!(same.lines.iter().all(|l| l.kind == LineKind::Context));
+    assert_eq!(same.line_text(&same.lines[1]), "y");
+    assert_eq!(d.unchanged, None);
 }
 
 #[test]

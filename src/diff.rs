@@ -269,6 +269,7 @@ mod tests {
             non_utf8: false,
             old_no_newline: false,
             new_no_newline: false,
+            unchanged: None,
         }
     }
 

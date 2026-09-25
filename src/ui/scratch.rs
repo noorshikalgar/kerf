@@ -261,8 +261,8 @@ impl Kerf {
 
     fn render_pane(&self, sc: &Scratch, side: Side, cx: &mut Context<Self>) -> impl IntoElement {
         let (label, content, key) = match side {
-            Side::Left => ("Left · Original", &sc.left, "left"),
-            Side::Right => ("Right · Changed", &sc.right, "right"),
+            Side::Left => ("Left", &sc.left, "left"),
+            Side::Right => ("Right", &sc.right, "right"),
         };
         let focused = sc.focus == side;
         let link = |id: &str, text: &'static str| {
