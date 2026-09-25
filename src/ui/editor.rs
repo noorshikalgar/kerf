@@ -55,8 +55,12 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
+    cx.bind_keys(bindings());
+}
+
+pub fn bindings() -> Vec<KeyBinding> {
     let c = Some("KerfEditor");
-    cx.bind_keys([
+    vec![
         KeyBinding::new("backspace", Backspace, c),
         KeyBinding::new("alt-backspace", BackspaceWord, c),
         KeyBinding::new("delete", Delete, c),
@@ -97,7 +101,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-z", Redo, c),
         KeyBinding::new("cmd-enter", Submit, c),
         KeyBinding::new("escape", Blur, c),
-    ]);
+    ]
 }
 
 pub enum EditorEvent {
