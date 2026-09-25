@@ -205,6 +205,126 @@ impl Kerf {
             .into_any_element()
     }
 
+    /// Titlebar repository menu: recents, browse, close.
+    pub fn render_repo_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.repo_menu_open {
+            return None;
+        }
+        let nerd = self.nerd();
+        let current = self.repo_path.clone();
+        let recents: Vec<_> = self.persisted.recents.iter().take(MAX_RECENTS).cloned().collect();
+        let row = |id: SharedString| {
+            div()
+                .id(id)
+                .mx(px(4.))
+                .px(px(8.))
+                .py(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .rounded(theme::RADIUS)
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::ash()))
+        };
+        let close_menu = |this: &mut Kerf| this.repo_menu_open = false;
+        let menu = div()
+            .id("repo-menu")
+            .absolute()
+            .top(theme::TITLEBAR_H + px(4.))
+            .left(px(96.))
+            .w(px(380.))
+            .max_h(px(480.))
+            .overflow_y_scroll()
+            .py(px(4.))
+            .flex()
+            .flex_col()
+            .bg(theme::crypt())
+            .border_1()
+            .border_color(theme::line_hi())
+            .rounded(theme::RADIUS)
+            .shadow_lg()
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(micro("Recent").px(px(12.)).pt(px(6.)).pb(px(4.)))
+            .when(recents.is_empty(), |d| {
+                d.child(div().px(px(12.)).py(px(6.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("No recent repositories"))
+            })
+            .children(recents.into_iter().enumerate().map(|(i, p)| {
+                let exists = p.exists();
+                let is_current = current.as_ref() == Some(&p);
+                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let path = tilde(&p.display().to_string());
+                let open_p = p.clone();
+                row(SharedString::from(format!("menu-recent-{i}")))
+                    .when(!exists, |d| d.opacity(0.5))
+                    .child(icon(nerd, "\u{ea62}"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(theme::TEXT_LIST)
+                                    .text_color(if is_current { theme::frost() } else { theme::bone() })
+                                    .when(!exists, |d| d.line_through())
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .text_size(theme::TEXT_CONTROL)
+                                    .text_color(theme::mute())
+                                    .child(path),
+                            ),
+                    )
+                    .when(is_current, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Open")))
+                    .when(exists && !is_current, |d| {
+                        d.on_click(cx.listener(move |this, _, _, cx| {
+                            close_menu(this);
+                            this.open_repo(open_p.clone(), cx);
+                        }))
+                    })
+            }))
+            .child(div().h(px(1.)).my(px(4.)).bg(theme::line()))
+            .child(
+                row("menu-browse".into())
+                    .child(icon(nerd, "\u{ea83}"))
+                    .child(div().text_size(theme::TEXT_LIST).text_color(theme::bone()).child("Browse…"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        close_menu(this);
+                        this.prompt_open(cx);
+                    })),
+            )
+            .when(current.is_some(), |d| {
+                d.child(
+                    row("menu-close".into())
+                        .child(icon(nerd, "\u{ea76}"))
+                        .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child("Close Repository"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            close_menu(this);
+                            this.close_repo(cx);
+                        })),
+                )
+            });
+        Some(
+            div()
+                .id("repo-menu-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.repo_menu_open = false;
+                    cx.notify();
+                }))
+                .child(menu)
+                .into_any_element(),
+        )
+    }
+
     /// Leaves git mode: back to the start page (plain-diff tabs stay open).
     pub fn close_repo(&mut self, cx: &mut Context<Self>) {
         self.repo_path = None;

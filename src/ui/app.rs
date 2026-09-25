@@ -311,6 +311,8 @@ pub struct Kerf {
     pub editors: HashMap<u64, super::scratch::EditorPair>,
 
     pub picker: Option<Picker>,
+    /// Titlebar repository switcher popover.
+    pub repo_menu_open: bool,
     pub sidebar_open: bool,
     pub sidebar_w: f32,
     pub resizing: bool,
@@ -392,6 +394,7 @@ impl Kerf {
             scratch_seq: 0,
             editors: HashMap::new(),
             picker: None,
+            repo_menu_open: false,
             sidebar_open: true,
             resizing: false,
             scroll_drag: None,
@@ -1393,9 +1396,10 @@ impl Kerf {
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
-        if self.info_open || self.shortcuts_open {
+        if self.info_open || self.shortcuts_open || self.repo_menu_open {
             self.info_open = false;
             self.shortcuts_open = false;
+            self.repo_menu_open = false;
             cx.notify();
             return;
         }
@@ -1757,6 +1761,7 @@ impl Render for Kerf {
             .children(self.render_picker(window, cx))
             .children(self.render_info(window, cx))
             .children(self.render_shortcuts(window, cx))
+            .children(self.render_repo_menu(cx))
     }
 }
 

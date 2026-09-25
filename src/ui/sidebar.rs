@@ -40,9 +40,32 @@ impl Kerf {
                 }
             })
             .child(div().text_size(theme::TEXT_LIST).font_weight(gpui::FontWeight::BOLD).text_color(theme::bone()).child("kerf"))
-            .when(!self.repo_name.is_empty(), |d| {
-                d.child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
-                    .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child(self.repo_name.clone()))
+            .child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
+            // Repository switcher: always reachable, from git or plain-diff mode.
+            .child({
+                let has_repo = self.repo_path.is_some();
+                let nerd = self.nerd();
+                div()
+                    .id("repo-switcher")
+                    .h(px(24.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(theme::RADIUS)
+                    .text_size(theme::TEXT_LIST)
+                    .text_color(if has_repo { theme::body() } else { theme::mute() })
+                    .when(self.repo_menu_open, |d| d.bg(theme::slate()).text_color(theme::bone()))
+                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                    .cursor_pointer()
+                    .tooltip(|_, cx| cx.new(|_| widgets::Tip("Switch or open a repository  ⌘O")).into())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.repo_menu_open = !this.repo_menu_open;
+                        cx.notify();
+                    }))
+                    .child(if has_repo { self.repo_name.clone() } else { "Open Repository".into() })
+                    .child(widgets::chevron(true, nerd))
             })
             .when(!range.is_empty(), |d| {
                 d.child(div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child(range))
