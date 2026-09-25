@@ -1,0 +1,1138 @@
+//! Diff pane: sticky file header, commit banner, and the virtualized diff body.
+
+use super::app::{DiffState, Kerf, Loaded, Target};
+use super::scrollbar::{Bar, MAP_WIDTH, WIDTH as SCROLL_WIDTH};
+use super::widgets::{self, age, bytes, counts, micro, seg, status_glyph, thousands};
+use crate::diff::{self, Layout, Row, Wrapped};
+use crate::git::{short_sha, ChangeStatus, DiffBody, LineKind};
+use crate::highlight::Syn;
+use crate::theme;
+use gpui::{
+    div, prelude::*, px, relative, uniform_list, AnyElement, Context, Div, FontStyle, FontWeight, HighlightStyle, Hsla,
+    SharedString, StyledText, Window,
+};
+use std::ops::Range;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Monospace advance at `TEXT_CODE` (JetBrains Mono ≈ 0.6em).
+const CHAR_W: f32 = 8.4;
+
+impl Kerf {
+    /// Width of the diff text area (window minus sidebar, minimap and scrollbar).
+    fn pane_width(&self, window: &Window) -> f32 {
+        let mut w = f32::from(window.viewport_size().width) - MAP_WIDTH - SCROLL_WIDTH - 2.;
+        if self.sidebar_open {
+            w -= self.sidebar_w + 1.;
+        }
+        w
+    }
+
+    /// Column geometry for this frame: split half widths (from the draggable divider) and the
+    /// shared horizontal text offset, clamped to what the longest line needs.
+    fn geometry(&mut self, l: &Loaded, window: &Window) -> Geo {
+        let area = self.pane_width(window);
+        let split = self.layout == Layout::Split && l.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
+        let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
+        let sign_w = CHAR_W * 2. + 6.;
+        let halves = split.then(|| {
+            let lw = ((area - 1.) * self.split_ratio).round();
+            (lw, area - 1. - lw)
+        });
+        let visible = match halves {
+            Some((lw, rw)) => lw.min(rw) - gutter - sign_w,
+            None => area - gutter * 2. - sign_w,
+        }
+        .max(40.);
+        let content = l.widest_chars as f32 * CHAR_W + 40.;
+        self.hscroll_max = if self.wrap { 0. } else { (content - visible).max(0.) };
+        self.hscroll = self.hscroll.clamp(0., self.hscroll_max);
+        self.hbar = (area, (visible / content.max(visible) * area).clamp(24., area));
+        Geo { split: halves, hscroll: self.hscroll }
+    }
+
+    /// Soft-wrap layout for the loaded diff at the current pane width (cached per rows + width).
+    fn wrapped_for(&mut self, l: &Arc<Loaded>, window: &Window) -> Option<Arc<Wrapped>> {
+        if !self.wrap {
+            return None;
+        }
+        let pane_w = self.pane_width(window);
+        let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
+        let split = self.layout == Layout::Split && l.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
+        let avail = if split {
+            (pane_w - 1.) / 2. - gutter - CHAR_W * 2. - 8.
+        } else {
+            pane_w - gutter * 2. - CHAR_W * 2. - 24.
+        };
+        let cols = ((avail / CHAR_W).floor() as usize).max(16);
+        let key = Arc::as_ptr(&l.rows) as usize;
+        if let Some((k, c, w)) = &self.wrap_cache {
+            if *k == key && *c == cols {
+                return Some(w.clone());
+            }
+        }
+        let w = Arc::new(diff::wrap_rows(&l.fd, &l.rows, cols));
+        self.wrap_cache = Some((key, cols, w.clone()));
+        Some(w)
+    }
+
+    pub fn render_diff_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (target, loaded, loading, error) = match &self.diff {
+            DiffState::Empty => (None, None, false, None),
+            DiffState::Loading { target, prev, since } => {
+                let show_spinner = since.elapsed() > Duration::from_millis(150);
+                // Keep showing the previous diff (dimmed once slow) — never a blank flash.
+                (Some(target.clone()), prev.clone().map(|p| (p, show_spinner)), show_spinner, None)
+            }
+            DiffState::Ready(l) => (Some(l.target.clone()), Some((l.clone(), false)), false, None),
+            DiffState::Error { target, message } => (Some(target.clone()), None, false, Some(message.clone())),
+        };
+        let mut pane = div().flex_1().min_w_0().h_full().flex().flex_col().bg(theme::void());
+        if !self.tabs.is_empty() {
+            pane = pane.child(self.render_tab_bar(cx));
+        }
+        if let Some(sc) = self.active_scratch() {
+            self.ensure_editors(&sc, window, cx);
+            return pane.child(self.render_live(&sc, cx)).into_any_element();
+        }
+        let Some(target) = target else {
+            if self.repo_path.is_none() && self.tabs.is_empty() {
+                return pane.child(self.render_start_page(cx)).into_any_element();
+            }
+            return pane.child(self.render_welcome(cx)).into_any_element();
+        };
+        pane = pane.child(self.render_file_header(&target, loaded.as_ref().map(|l| &l.0), loading, cx));
+        if let Some(c) = &target.commit {
+            pane = pane.child(self.render_commit_banner(c, cx));
+        }
+        if let Some(msg) = error {
+            return pane.child(notice("Could not diff this file", &msg, theme::del_fg())).into_any_element();
+        }
+        match loaded {
+            None => pane.child(div().flex_1()).into_any_element(),
+            Some((l, dim)) => {
+                // Stale diff for another file while loading → dim it.
+                let stale = l.target.key() != target.key();
+                pane.child(div().flex_1().min_h_0().when(stale && dim, |d| d.opacity(0.5)).child({
+                    let wrapped = self.wrapped_for(&l, window);
+                    let geo = self.geometry(&l, window);
+                    if let Some(row) = self.pending_top_row.take() {
+                        let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
+                        self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
+                    }
+                    self.render_body(&l, wrapped, geo, cx)
+                }))
+                .into_any_element()
+            }
+        }
+    }
+
+    /// Zed-style tab strip: preview tab in italics, close on hover/active, middle-click closes,
+    /// double-click pins.
+    fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let nerd = self.nerd();
+        div()
+            .id("tab-bar")
+            .h(theme::HEADER_H)
+            .flex_none()
+            .flex()
+            .items_end()
+            .bg(theme::abyss())
+            .border_b_1()
+            .border_color(theme::line())
+            .overflow_x_scroll()
+            .children(self.tabs.iter().enumerate().map(|(i, t)| {
+                let active = self.active_tab == Some(i);
+                let c = &t.target.change;
+                let name = c.path.rsplit('/').next().unwrap_or(&c.path).to_string();
+                let path = c.path.clone();
+                let commit = t.target.commit.as_ref().map(|c| c.short());
+                let tip = match &commit {
+                    Some(sha) => format!("{path} @ {sha}"),
+                    None => path,
+                };
+                div()
+                    .id(("tab", i))
+                    .group("tab")
+                    .h_full()
+                    .max_w(px(240.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .pl(px(12.))
+                    .pr(px(6.))
+                    .relative()
+                    .border_r_1()
+                    .border_color(theme::line())
+                    .when(active, |d| {
+                        d.bg(theme::crypt())
+                            .child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(theme::frost()))
+                    })
+                    .when(!active, |d| d.hover(|s| s.bg(theme::ash())))
+                    .cursor_pointer()
+                    .tooltip(move |_, cx| cx.new(|_| TabTip(tip.clone())).into())
+                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                        if ev.click_count() >= 2 {
+                            if let Some(t) = this.tabs.get_mut(i) {
+                                t.pinned = true;
+                            }
+                        }
+                        this.activate_tab(i, cx);
+                    }))
+                    .on_mouse_down(gpui::MouseButton::Middle, cx.listener(move |this, _, _, cx| this.close_tab(i, cx)))
+                    .child(status_glyph(c.status))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_size(theme::TEXT_LIST)
+                            .text_color(if active { theme::bone() } else { theme::body() })
+                            .when(!t.pinned, |d| d.italic())
+                            .child(name),
+                    )
+                    .when_some(commit, |d, sha| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::syn_type())
+                                .child(format!("{} {sha}", widgets::ref_icon(super::app::RefLook::Commit, nerd))),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id(("tab-close", i))
+                            .w(px(22.))
+                            .h(px(22.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(theme::RADIUS)
+                            .text_size(if nerd { theme::TEXT_CODE } else { theme::TEXT_LIST })
+                            .text_color(theme::mute())
+                            .when(!active, |d| d.invisible().group_hover("tab", |s| s.visible()))
+                            .hover(|s| s.bg(theme::slate()).text_color(theme::bone()))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(i, cx);
+                            }))
+                            .child(if nerd { "\u{ea76}" } else { "✕" }),
+                    )
+            }))
+    }
+
+    /// Commit message panel: one-line header (collapsible), then subject + full body in a
+    /// vertical-only scroll area whose max height the user drags from the bottom edge.
+    fn render_commit_banner(&self, c: &crate::git::CommitInfo, cx: &mut Context<Self>) -> impl IntoElement {
+        let open = self.banner_open;
+        let body: String = c.message.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+        let body = body.trim_end().to_string();
+        let sha = c.oid.to_string();
+        let header = div()
+            .id("banner-header")
+            .h(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pl(px(6.))
+            .pr(px(12.))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::ash()))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.banner_open = !this.banner_open;
+                this.persisted.banner_collapsed = !this.banner_open;
+                this.persisted.save();
+                cx.notify();
+            }))
+            .child(widgets::chevron(open, self.nerd()))
+            .child(micro("Commit"))
+            .child(
+                div()
+                    .id("banner-sha")
+                    .flex_none()
+                    .px(px(4.))
+                    .rounded(theme::RADIUS)
+                    .text_size(theme::TEXT_CONTROL)
+                    .text_color(theme::frost())
+                    .hover(|s| s.bg(theme::slate()))
+                    .tooltip(|_, cx| cx.new(|_| widgets::Tip("Copy full SHA")).into())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha.clone()));
+                        this.flash(format!("Copied {}", &sha[..7]), cx);
+                    }))
+                    .child(c.short()),
+            )
+            .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
+            .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
+            .when(c.is_merge(), |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .text_size(theme::TEXT_MICRO)
+                        .text_color(theme::frost())
+                        .child("MERGE · vs first parent"),
+                )
+            })
+            .when(!open, |d| {
+                d.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(theme::TEXT_LIST)
+                        .text_color(theme::bone())
+                        .child(c.summary.clone()),
+                )
+            });
+
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .bg(theme::abyss())
+            .border_b_1()
+            .border_color(theme::line())
+            .child(header)
+            .when(open, |d| {
+                d.child(
+                    div()
+                        .id("banner-body")
+                        .max_h(px(self.banner_h))
+                        .overflow_y_scroll()
+                        .overflow_x_hidden()
+                        .px(px(12.))
+                        .pb(px(10.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .text_size(theme::TEXT_LIST)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::bone())
+                                .child(c.summary.clone()),
+                        )
+                        .when(!body.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .text_size(theme::TEXT_CONTROL)
+                                    .text_color(theme::body())
+                                    .children(body.lines().map(|l| {
+                                        // Blank lines keep paragraph spacing.
+                                        div().min_h(px(16.)).child(l.to_string())
+                                    })),
+                            )
+                        }),
+                )
+                // Drag handle: sets the panel's max height (like the sidebar's width handle).
+                .child(
+                    div()
+                        .id("banner-resize")
+                        .h(px(5.))
+                        .mt(px(-3.))
+                        .cursor_row_resize()
+                        .hover(|s| s.bg(theme::line_hi()))
+                        .when(self.banner_drag.is_some(), |d| d.bg(theme::frost()))
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.banner_drag = Some((ev.position.y.into(), this.banner_h));
+                                cx.notify();
+                            }),
+                        ),
+                )
+            })
+    }
+
+    fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (title, sub) = if self.repo_path.is_none() {
+            ("Open a repository", "Pick any local clone — Kerf is read-only. Or diff any two texts or files.")
+        } else if self.range_data().is_some_and(|d| d.cmp.identical()) {
+            ("Identical", "Base and compare point at the same commit.")
+        } else if self.range_data().is_some_and(|d| d.changes.is_empty()) {
+            ("No file changes", "The trees are identical in this view.")
+        } else {
+            ("Select a file", "Pick a file on the left — the diff shows here.")
+        };
+        let action = |id: &'static str, label: &'static str, sub: &'static str| {
+            div()
+                .id(id)
+                .w(px(200.))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .p(px(12.))
+                .border_1()
+                .border_color(theme::line_hi())
+                .rounded(theme::RADIUS)
+                .bg(theme::abyss())
+                .cursor_pointer()
+                .hover(|s| s.border_color(theme::frost()).bg(theme::crypt()))
+                .child(
+                    div()
+                        .text_size(theme::TEXT_LIST)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::bone())
+                        .child(label),
+                )
+                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(sub))
+        };
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(16.))
+            .child(
+                div()
+                    .text_size(theme::TEXT_DISPLAY)
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme::bone())
+                    .child(title),
+            )
+            .child(div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child(sub))
+            .child(
+                div()
+                    .mt(px(12.))
+                    .flex()
+                    .gap(px(12.))
+                    .when(self.repo_path.is_none(), |d| {
+                        d.child(
+                            action("w-open", "Open Repository", "Compare branches & commits")
+                                .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
+                        )
+                    })
+                    .child(
+                        action("w-new", "New Diff", "Paste two texts")
+                            .on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))),
+                    )
+                    .child(
+                        action("w-files", "Compare Files", "Pick any two files")
+                            .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
+                    ),
+            )
+    }
+
+    fn render_file_header(
+        &self,
+        target: &Target,
+        loaded: Option<&Arc<Loaded>>,
+        loading: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let c = &target.change;
+        let scratch = target.scratch.clone();
+        let path: SharedString = match (&scratch, &c.old_path, c.status) {
+            (Some(sc), _, _) => match (&sc.left, &sc.right) {
+                (Some(l), Some(r)) => format!("{}  ↔  {}", l.label, r.label).into(),
+                _ => sc.title().into(),
+            },
+            (None, Some(old), ChangeStatus::Renamed | ChangeStatus::Copied) => format!("{old} → {}", c.path).into(),
+            _ => c.path.clone().into(),
+        };
+        let (add, del) = match loaded.filter(|l| l.target.key() == target.key()) {
+            Some(l) if matches!(l.fd.body, DiffBody::Text) => {
+                (Some(l.fd.additions() as u64), Some(l.fd.deletions() as u64))
+            }
+            _ => (c.additions.map(u64::from), c.deletions.map(u64::from)),
+        };
+        let split = self.layout == Layout::Split;
+        div()
+            .h(theme::HEADER_H)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(12.))
+            .bg(theme::crypt())
+            .border_b_1()
+            .border_color(theme::line())
+            .child(status_glyph(c.status))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme::bone())
+                    .child(path),
+            )
+            .when_some(c.similarity, |d, s| {
+                d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(format!("{s}%")))
+            })
+            .when(c.mode_changed(), |d| {
+                d.child(
+                    div()
+                        .text_size(theme::TEXT_CONTROL)
+                        .text_color(theme::mod_fg())
+                        .child(format!("mode {:o} → {:o}", c.old_mode, c.new_mode)),
+                )
+            })
+            .when(loaded.is_some_and(|l| l.fd.non_utf8), |d| {
+                d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mod_fg()).child("NON-UTF-8"))
+            })
+            .child(counts(add, del))
+            .when(loading, |d| d.child(widgets::spinner()))
+            .child(div().w(px(8.)))
+            .child(
+                seg("unified", "Unified", !split, "Unified view  s")
+                    .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Unified, cx))),
+            )
+            .child(
+                seg("split", "Split", split, "Split view  s")
+                    .on_click(cx.listener(|this, _, _, cx| this.set_layout(Layout::Split, cx))),
+            )
+            .child(
+                seg("ws", "Ignore WS", self.ignore_ws, "Ignore whitespace  w")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_ws(cx))),
+            )
+            .child(
+                seg("wrap", "Wrap", self.wrap, "Wrap long lines  z")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_wrap(cx))),
+            )
+    }
+
+    fn render_body(
+        &self,
+        l: &Arc<Loaded>,
+        wrapped: Option<Arc<Wrapped>>,
+        geo: Geo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let fd = &l.fd;
+        match &fd.body {
+            DiffBody::Binary => {
+                return notice(
+                    "Binary file",
+                    &format!("{} → {}", bytes(fd.old_size), bytes(fd.new_size)),
+                    theme::mute(),
+                )
+                .into_any_element()
+            }
+            DiffBody::Submodule { old, new } => {
+                let s = |o: &Option<git2::Oid>| o.map(short_sha).unwrap_or_else(|| "∅".into());
+                return notice("Submodule", &format!("{} → {}", s(old), s(new)), theme::frost()).into_any_element();
+            }
+            DiffBody::TooLarge => {
+                return gate(
+                    "Large diff",
+                    &format!(
+                        "{} → {} · above the {} safety limit",
+                        bytes(fd.old_size),
+                        bytes(fd.new_size),
+                        bytes(20 * 1024 * 1024)
+                    ),
+                    "Load anyway ↵",
+                    cx,
+                )
+                .into_any_element()
+            }
+            DiffBody::Text => {}
+        }
+        if self.showing_collapsed_generated()
+            && l.target.key() == self.current_target().map(|t| t.key()).unwrap_or_default()
+        {
+            let c = &l.target.change;
+            return gate(
+                "Generated file",
+                &format!(
+                    "+{} −{} · lockfiles and build output start collapsed",
+                    thousands(fd.additions() as u64),
+                    thousands(fd.deletions() as u64)
+                ),
+                "Show ↵",
+                cx,
+            )
+            .when(c.is_generated(), |d| d)
+            .into_any_element();
+        }
+        if fd.lines.is_empty() {
+            let why = if l.target.change.mode_changed() {
+                "Only the file mode changed."
+            } else if self.ignore_ws {
+                "Only whitespace changed (ignore-whitespace is on — press w)."
+            } else if fd.old_size == 0 && fd.new_size == 0 {
+                "Empty file."
+            } else {
+                "No textual changes."
+            };
+            return notice("No line changes", why, theme::mute()).into_any_element();
+        }
+
+        let loaded = l.clone();
+        let count = wrapped.as_ref().map(|w| w.map.len()).unwrap_or(l.rows.rows.len());
+        let wrap = wrapped.clone();
+        let list = uniform_list(
+            "diff",
+            count,
+            cx.processor(move |_this, range: Range<usize>, _, cx| {
+                range
+                    .map(|ix| match &wrap {
+                        Some(w) => {
+                            let (row, seg) = w.map[ix];
+                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), geo, cx)
+                        }
+                        None => render_row(&loaded, ix, ix, None, geo, cx),
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(self.diff_scroll.clone())
+        .size_full();
+        // Full-height columns behind the rows so gutters and the divider run to the bottom.
+        let half_w = geo.split.map(|(lw, _)| lw).unwrap_or(0.);
+        let gutter_w = l.gutter_digits as f32 * CHAR_W + 16.;
+        let strip = |x: f32, w: f32| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(x))
+                .w(px(w))
+                .bg(theme::abyss())
+                .border_r_1()
+                .border_color(theme::line())
+        };
+        let underlay = if geo.split.is_some() {
+            div()
+                .absolute()
+                .size_full()
+                .child(strip(0., gutter_w))
+                .child(div().absolute().top_0().bottom_0().left(px(half_w)).w(px(1.)).bg(theme::line_hi()))
+                .child(strip(half_w + 1., gutter_w))
+        } else {
+            div().absolute().size_full().child(strip(0., gutter_w * 2.))
+        };
+
+        let mut foot: Vec<AnyElement> = Vec::new();
+        if fd.old_no_newline || fd.new_no_newline {
+            let which = match (fd.old_no_newline, fd.new_no_newline) {
+                (true, true) => "Neither side ends with a newline",
+                (true, false) => "Old side had no newline at end of file",
+                _ => "New side has no newline at end of file",
+            };
+            foot.push(
+                div()
+                    .h(theme::ROW_CODE)
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .border_t_1()
+                    .border_color(theme::line())
+                    .text_size(theme::TEXT_CONTROL)
+                    .text_color(theme::mute())
+                    .child(format!("⏎ {which}"))
+                    .into_any_element(),
+            );
+        }
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .relative()
+                                    .overflow_hidden()
+                                    // Area bounds, for divider / bottom scrollbar drags.
+                                    .child({
+                                        let cell = self.diff_area.clone();
+                                        gpui::canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().size_full()
+                                    })
+                                    .child(underlay)
+                                    .child(list)
+                                    .when_some(geo.split, |d, (lw, _)| d.child(self.render_divider(lw, cx))),
+                            )
+                            .when(self.hscroll_max > 0., |d| d.child(self.render_hbar(cx))),
+                    )
+                    .child(self.render_minimap(l, wrapped.as_deref(), cx))
+                    .child(self.render_scrollbar(Bar::Diff, cx)),
+            )
+            .children(foot)
+            .into_any_element()
+    }
+
+    /// Split divider: drag to resize the halves (remembered).
+    fn render_divider(&self, left_w: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("split-divider")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(left_w - 3.))
+            .w(px(7.))
+            .cursor_col_resize()
+            .flex()
+            .justify_center()
+            .child(div().w(px(if self.split_drag { 2. } else { 1. })).h_full().bg(if self.split_drag {
+                theme::frost()
+            } else {
+                gpui::transparent_black()
+            }))
+            .hover(|s| s.bg(theme::line_hi().opacity(0.5)))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.split_drag = true;
+                    cx.notify();
+                }),
+            )
+    }
+
+    /// Bottom horizontal scrollbar for the diff text (gutters stay put).
+    fn render_hbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (track, thumb) = self.hbar;
+        let travel = (track - thumb).max(0.);
+        let left = if self.hscroll_max > 0. { self.hscroll / self.hscroll_max * travel } else { 0. };
+        let active = self.hbar_drag.is_some();
+        div()
+            .id("hbar")
+            .h(px(12.))
+            .flex_none()
+            .relative()
+            .bg(theme::abyss())
+            .border_t_1()
+            .border_color(theme::line())
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    let x: f32 = (ev.position.x - this.diff_area.get().origin.x).into();
+                    let grab = if x >= left && x <= left + thumb { x - left } else { thumb / 2. };
+                    this.hbar_drag = Some(grab);
+                    this.drag_hbar_to(ev.position.x.into(), cx);
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(2.))
+                    .bottom(px(2.))
+                    .left(px(left))
+                    .w(px(thumb))
+                    .rounded(px(4.))
+                    .bg(if active { theme::thumb_active() } else { theme::thumb() })
+                    .hover(|s| s.bg(theme::thumb_hover())),
+            )
+    }
+
+    /// Minimap column: consecutive changed rows merge into one block, coloured by content.
+    fn render_minimap(&self, l: &Arc<Loaded>, wrapped: Option<&Wrapped>, cx: &mut Context<Self>) -> AnyElement {
+        let blocks = change_blocks(l);
+        let total = wrapped.map(|w| w.map.len()).unwrap_or(l.rows.rows.len()).max(1) as f32;
+        let marks = blocks
+            .into_iter()
+            .map(|(start, len, kind)| match wrapped {
+                // Blocks are in logical rows; place them in visual rows when wrapping.
+                Some(w) => (w.starts[start], w.starts[start + len] - w.starts[start], kind),
+                None => (start, len, kind),
+            })
+            .map(|(start, len, kind)| {
+                div()
+                    .absolute()
+                    .left(px(4.))
+                    .right(px(4.))
+                    .top(relative(start as f32 / total))
+                    .h(relative(len as f32 / total))
+                    .min_h(px(2.))
+                    .bg(if kind == LineKind::Added { theme::add_fg() } else { theme::del_fg() })
+                    .into_any_element()
+            })
+            .collect();
+        self.render_map(marks, cx)
+    }
+}
+
+/// Runs of changed rows: (first row, row count, kind). Mixed pairs in split view count as Added.
+fn change_blocks(l: &Loaded) -> Vec<(usize, usize, LineKind)> {
+    let mut out: Vec<(usize, usize, LineKind)> = Vec::new();
+    for (i, row) in l.rows.rows.iter().enumerate() {
+        let kind = match row {
+            Row::Line { idx, .. } => l.fd.lines[*idx].kind,
+            Row::Pair { left, right } => {
+                let r = right.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                let lk = left.as_ref().map(|c| l.fd.lines[c.idx].kind);
+                match (lk, r) {
+                    (_, Some(LineKind::Added)) => LineKind::Added,
+                    (Some(LineKind::Removed), _) => LineKind::Removed,
+                    _ => LineKind::Context,
+                }
+            }
+            _ => LineKind::Context,
+        };
+        if kind == LineKind::Context {
+            continue;
+        }
+        match out.last_mut() {
+            Some((s, n, k)) if *k == kind && *s + *n == i => *n += 1,
+            _ => out.push((i, 1, kind)),
+        }
+    }
+    out
+}
+
+fn notice(title: &str, detail: &str, color: Hsla) -> Div {
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(6.))
+        .child(
+            div().text_size(theme::TEXT_LIST).font_weight(FontWeight::BOLD).text_color(color).child(title.to_string()),
+        )
+        .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(detail.to_string()))
+}
+
+fn gate(title: &str, detail: &str, action: &'static str, cx: &mut Context<Kerf>) -> Div {
+    div().size_full().flex().items_center().justify_center().child(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .p(px(16.))
+            .border_1()
+            .border_color(theme::line_hi())
+            .rounded(theme::RADIUS)
+            .bg(theme::crypt())
+            .child(
+                div()
+                    .text_size(theme::TEXT_LIST)
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme::mod_fg())
+                    .child(title.to_string()),
+            )
+            .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::body()).child(detail.to_string()))
+            .child(
+                div()
+                    .id("gate-action")
+                    .mt(px(4.))
+                    .h(theme::CONTROL_H)
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .border_1()
+                    .border_color(theme::frost())
+                    .rounded(theme::RADIUS)
+                    .text_size(theme::TEXT_CONTROL)
+                    .text_color(theme::frost())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::slate()))
+                    .on_click(cx.listener(|this, _, _, cx| this.force_load(cx)))
+                    .child(action),
+            ),
+    )
+}
+
+fn syn_style(s: Syn) -> HighlightStyle {
+    let (color, weight, style) = match s {
+        Syn::Keyword => (theme::syn_keyword(), Some(FontWeight::BOLD), None),
+        Syn::Function => (theme::syn_function(), None, None),
+        Syn::Type => (theme::syn_type(), None, None),
+        Syn::String => (theme::syn_string(), None, None),
+        Syn::Number => (theme::syn_number(), None, None),
+        Syn::Comment => (theme::syn_comment(), None, Some(FontStyle::Italic)),
+        Syn::Punct => (theme::syn_punct(), None, None),
+        Syn::Attr => (theme::syn_attr(), None, None),
+    };
+    HighlightStyle { color: Some(color), font_weight: weight, font_style: style, ..Default::default() }
+}
+
+/// Builds the styled text for one diff line: truncation, tab expansion, syntax + word emphasis.
+/// `seg`: `(segment, cols)` — render only that wrapped chunk of the line.
+fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>], seg: Option<(usize, usize)>) -> StyledText {
+    let raw = l.fd.line_text(&l.fd.lines[idx]);
+    let kind = l.fd.lines[idx].kind;
+    let (shown, hidden) = diff::truncate(raw);
+    let limit = shown.len();
+    let emph_bg = match kind {
+        LineKind::Added => theme::add_emph(),
+        LineKind::Removed => theme::del_emph(),
+        LineKind::Context => theme::ash(),
+    };
+    let mut spans: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+    if let Some(hl) = &l.hl {
+        for (r, s) in &hl[idx] {
+            if r.start < limit {
+                spans.push((r.start..r.end.min(limit), syn_style(*s)));
+            }
+        }
+    }
+    let emph: Vec<(Range<usize>, HighlightStyle)> = emph
+        .iter()
+        .filter(|r| r.start < limit)
+        .map(|r| (r.start..r.end.min(limit), HighlightStyle { background_color: Some(emph_bg), ..Default::default() }))
+        .collect();
+    let combined: Vec<(Range<usize>, HighlightStyle)> = gpui::combine_highlights(spans, emph).collect();
+    let (mut text, map) = diff::expand_tabs(shown);
+    let mut combined: Vec<(Range<usize>, HighlightStyle)> = match map {
+        Some(m) => combined.into_iter().map(|(r, s)| (m[r.start]..m[r.end], s)).collect(),
+        None => combined,
+    };
+    if hidden > 0 {
+        let start = text.len();
+        text.push_str(&format!("  … {hidden} more chars"));
+        combined.push((
+            start..text.len(),
+            HighlightStyle { color: Some(theme::mute()), font_style: Some(FontStyle::Italic), ..Default::default() },
+        ));
+    }
+    if let Some((seg, cols)) = seg {
+        let r = diff::segment_range(&text, seg, cols);
+        let spans = combined
+            .into_iter()
+            .filter(|(h, _)| h.end > r.start && h.start < r.end)
+            .map(|(h, st)| (h.start.max(r.start) - r.start..h.end.min(r.end) - r.start, st))
+            .collect::<Vec<_>>();
+        return StyledText::new(SharedString::from(text[r].to_string())).with_highlights(spans);
+    }
+    StyledText::new(SharedString::from(text)).with_highlights(combined)
+}
+
+/// Line-number cell. Context lines use the gutter tone so the column reads like an editor's.
+fn gutter(n: Option<u32>, digits: usize, kind: LineKind) -> Div {
+    div()
+        .w(px(digits as f32 * CHAR_W + 16.))
+        .h_full()
+        .flex_none()
+        .items_center()
+        .bg(if kind == LineKind::Context { theme::abyss() } else { line_bg(kind) })
+        .pr(px(8.))
+        .flex()
+        .justify_end()
+        .text_color(theme::mute())
+        .child(n.map(|n| n.to_string()).unwrap_or_default())
+}
+
+fn line_bg(kind: LineKind) -> Hsla {
+    match kind {
+        LineKind::Added => theme::add_bg(),
+        LineKind::Removed => theme::del_bg(),
+        LineKind::Context => theme::void(),
+    }
+}
+
+fn sign(kind: LineKind) -> Div {
+    let (s, c) = match kind {
+        LineKind::Added => ("+", theme::add_fg()),
+        LineKind::Removed => ("−", theme::del_fg()),
+        LineKind::Context => (" ", theme::mute()),
+    };
+    div().w(px(CHAR_W * 2.)).pl(px(6.)).flex_none().text_color(c).child(s)
+}
+
+/// `vis` = visual row (element id), `ix` = logical row, `seg` = wrapped chunk to draw.
+/// `geo`: split half widths and the shared horizontal text offset.
+fn render_row(
+    l: &Arc<Loaded>,
+    vis: usize,
+    ix: usize,
+    seg: Option<(usize, usize)>,
+    geo: Geo,
+    cx: &mut Context<Kerf>,
+) -> AnyElement {
+    // Text scrolls horizontally inside its column; gutters stay fixed.
+    let scrolled = |t: StyledText| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .items_center()
+            .overflow_hidden()
+            .child(div().flex_none().ml(px(-geo.hscroll)).pr(px(24.)).child(t))
+    };
+    let first = seg.map(|(s, _)| s == 0).unwrap_or(true);
+    let row_base = || {
+        div()
+            .id(vis)
+            .h(theme::ROW_CODE)
+            .min_w_full()
+            .flex()
+            .items_center()
+            .whitespace_nowrap()
+            .text_size(theme::TEXT_CODE)
+    };
+    match &l.rows.rows[ix] {
+        Row::Hunk(_) if l.fd.unchanged.is_some() => {
+            let (text, color) = match l.fd.unchanged {
+                Some(crate::git::Unchanged::WhitespaceOnly) => {
+                    ("Only whitespace differs — ignored. Press w to show whitespace changes.", theme::mod_fg())
+                }
+                _ => ("Identical — no differences. Showing the full content.", theme::frost()),
+            };
+            row_base()
+                .bg(theme::crypt())
+                .pl(px(12.))
+                .gap(px(8.))
+                .text_size(theme::TEXT_CONTROL)
+                .text_color(color)
+                .child("●")
+                .child(text)
+                .into_any_element()
+        }
+        Row::Hunk(h) => {
+            let h = &l.fd.hunks[*h];
+            row_base()
+                .bg(theme::crypt())
+                .pl(px(12.))
+                .gap(px(12.))
+                .text_color(theme::mute())
+                .child(format!("@@ -{},{} +{},{} @@", h.old_start, h.old_lines, h.new_start, h.new_lines))
+                .child(div().text_color(theme::body()).child(h.context.clone()))
+                .into_any_element()
+        }
+        Row::Gap { hidden } => row_base()
+            .justify_center()
+            .text_size(theme::TEXT_CONTROL)
+            .text_color(theme::mute())
+            .cursor_pointer()
+            .hover(|s| s.text_color(theme::body()).bg(theme::abyss()))
+            .on_click(cx.listener(|this, _, _, cx| this.expand_context(cx)))
+            .child(format!("┄┄┄  ⋯ {} unchanged lines · click to expand  ┄┄┄", thousands(*hidden as u64)))
+            .into_any_element(),
+        Row::Line { idx, emph } => {
+            let line = &l.fd.lines[*idx];
+            // Continuation rows of a wrapped line keep the tint but drop numbers and sign.
+            row_base()
+                .bg(line_bg(line.kind))
+                .child(gutter(line.old_no.filter(|_| first), l.gutter_digits, line.kind))
+                .child(
+                    gutter(line.new_no.filter(|_| first), l.gutter_digits, line.kind)
+                        .border_r_1()
+                        .border_color(theme::line()),
+                )
+                .child(if first { sign(line.kind) } else { sign(LineKind::Context) })
+                .child(scrolled(line_text(l, *idx, emph, seg)))
+                .on_scroll_wheel(cx.listener(Kerf::on_diff_wheel))
+                .into_any_element()
+        }
+        Row::Pair { left, right } => {
+            let (lw, rw) = geo.split.unwrap_or((400., 400.));
+            let half = |cell: &Option<diff::Cell>, old: bool| {
+                let base =
+                    div().w(px(if old { lw } else { rw })).flex_none().h_full().flex().items_center().overflow_hidden();
+                match cell {
+                    None => base.bg(theme::abyss()),
+                    Some(c) => {
+                        let line = &l.fd.lines[c.idx];
+                        let kind = line.kind;
+                        let no = if old { line.old_no } else { line.new_no };
+                        // Shorter side of a wrapped pair: keep the tint, no text on extra rows.
+                        let own_segs = seg
+                            .map(|(_, cols)| diff::wrap_breaks(&diff::display_text(l.fd.line_text(line)), cols).len())
+                            .unwrap_or(1);
+                        let past_end = seg.is_some_and(|(s, _)| s >= own_segs);
+                        base.bg(line_bg(kind))
+                            .child(
+                                gutter(no.filter(|_| first), l.gutter_digits, kind)
+                                    .border_r_1()
+                                    .border_color(theme::line()),
+                            )
+                            .child(if first { sign(kind) } else { sign(LineKind::Context) })
+                            .when(!past_end, |d| d.child(scrolled(line_text(l, c.idx, &c.emph, seg))))
+                    }
+                }
+            };
+            row_base()
+                .child(half(left, true))
+                .child(div().w(px(1.)).h_full().flex_none().bg(theme::line_hi()))
+                .child(half(right, false))
+                .on_scroll_wheel(cx.listener(Kerf::on_diff_wheel))
+                .into_any_element()
+        }
+    }
+}
+
+/// Per-frame column geometry for diff rows.
+#[derive(Clone, Copy)]
+pub struct Geo {
+    /// Split view: (left, right) half widths.
+    split: Option<(f32, f32)>,
+    /// Horizontal text offset shared by all rows.
+    hscroll: f32,
+}
+
+impl Kerf {
+    /// Horizontal wheel / trackpad (or shift+wheel) scrolls the text; vertical passes to the list.
+    fn on_diff_wheel(&mut self, ev: &gpui::ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let d = ev.delta.pixel_delta(theme::ROW_CODE);
+        let (dx, dy) = (f32::from(d.x), f32::from(d.y));
+        let dx = if ev.modifiers.shift && dx == 0. { dy } else { dx };
+        if self.hscroll_max <= 0. || (dx.abs() <= dy.abs() && !ev.modifiers.shift) {
+            return;
+        }
+        self.hscroll = (self.hscroll - dx).clamp(0., self.hscroll_max);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Bottom scrollbar drag: pointer x (window) → text offset.
+    pub fn drag_hbar_to(&mut self, x: f32, cx: &mut Context<Self>) {
+        let Some(grab) = self.hbar_drag else { return };
+        let (track, thumb) = self.hbar;
+        let travel = (track - thumb).max(1.);
+        let left = x - f32::from(self.diff_area.get().origin.x) - grab;
+        self.hscroll = (left / travel).clamp(0., 1.) * self.hscroll_max;
+        cx.notify();
+    }
+
+    /// Divider drag: pointer x (window) → split ratio.
+    pub fn drag_split_to(&mut self, x: f32, cx: &mut Context<Self>) {
+        let b = self.diff_area.get();
+        let w: f32 = b.size.width.into();
+        if w > 0. {
+            self.split_ratio = ((x - f32::from(b.origin.x)) / w).clamp(0.2, 0.8);
+            cx.notify();
+        }
+    }
+}
+
+struct TabTip(String);
+
+impl Render for TabTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(8.))
+            .py(px(4.))
+            .bg(theme::crypt())
+            .border_1()
+            .border_color(theme::line_hi())
+            .rounded(theme::RADIUS)
+            .text_size(theme::TEXT_CONTROL)
+            .text_color(theme::body())
+            .child(self.0.clone())
+    }
+}
