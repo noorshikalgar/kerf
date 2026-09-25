@@ -179,6 +179,8 @@ pub struct Loaded {
     pub hl: Option<Arc<Vec<LineSpans>>>,
     /// Row with the longest text, used for horizontal sizing.
     pub widest_row: Option<usize>,
+    /// Longest line on screen, in chars (sizes split halves for horizontal scroll).
+    pub widest_chars: usize,
     pub gutter_digits: usize,
 }
 
@@ -1126,8 +1128,9 @@ impl Kerf {
                 };
                 let rows = diff::build(&fd, layout);
                 let widest_row = widest(&fd, &rows);
+                let widest_chars = fd.lines.iter().map(|l| diff::display_chars(fd.line_text(l))).max().unwrap_or(0);
                 let max_no = fd.lines.iter().filter_map(|l| l.old_no.max(l.new_no)).max().unwrap_or(1);
-                anyhow::Ok((Arc::new(fd), Arc::new(rows), widest_row, digits(max_no)))
+                anyhow::Ok((Arc::new(fd), Arc::new(rows), widest_row, widest_chars, digits(max_no)))
             });
             // Spinner only appears if the job takes longer than 150ms.
             let timer = cx.background_executor().timer(Duration::from_millis(150));
@@ -1145,8 +1148,8 @@ impl Kerf {
                     return;
                 }
                 match result {
-                    Ok((fd, rows, widest_row, gutter_digits)) => {
-                        let loaded = Arc::new(Loaded { target: target.clone(), fd, rows, hl: None, widest_row, gutter_digits });
+                    Ok((fd, rows, widest_row, widest_chars, gutter_digits)) => {
+                        let loaded = Arc::new(Loaded { target: target.clone(), fd, rows, hl: None, widest_row, widest_chars, gutter_digits });
                         this.diff = DiffState::Ready(loaded.clone());
                         if reset_scroll {
                             this.diff_scroll.scroll_to_item(0, ScrollStrategy::Top);
@@ -1183,6 +1186,7 @@ impl Kerf {
                         rows: l.rows.clone(),
                         hl: Some(Arc::new(hl)),
                         widest_row: l.widest_row,
+                        widest_chars: l.widest_chars,
                         gutter_digits: l.gutter_digits,
                     }));
                     cx.notify();

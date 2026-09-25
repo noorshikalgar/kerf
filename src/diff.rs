@@ -216,29 +216,50 @@ impl Wrapped {
     }
 }
 
-/// Characters a line occupies on screen: tabs expand to 4, very long lines are truncated
-/// (plus room for the "… N more chars" suffix).
-pub fn display_chars(s: &str) -> usize {
+/// Exactly what a diff row draws for a line: truncated, tabs expanded, plus the
+/// "… N more chars" suffix. Wrapping and rendering both work on this string.
+pub fn display_text(s: &str) -> String {
     let (shown, hidden) = truncate(s);
-    let n: usize = shown.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum();
-    if hidden > 0 { n + 24 } else { n }
+    let mut out = shown.replace('\t', "    ");
+    if hidden > 0 {
+        out.push_str(&format!("  … {hidden} more chars"));
+    }
+    out
 }
 
-fn segs(chars: usize, cols: usize) -> usize {
-    chars.div_ceil(cols.max(1)).max(1)
+/// Char count on screen (see `display_text`).
+pub fn display_chars(s: &str) -> usize {
+    display_text(s).chars().count()
+}
+
+/// Soft-wrap break points: char index where each visual segment starts (first is 0).
+/// Breaks after the last space that fits; words longer than a line are split hard.
+pub fn wrap_breaks(s: &str, cols: usize) -> Vec<usize> {
+    let cols = cols.max(1);
+    let chars: Vec<char> = s.chars().collect();
+    let mut starts = vec![0];
+    let mut start = 0;
+    while chars.len() - start > cols {
+        let limit = start + cols;
+        // Last whitespace inside the window → break right after it.
+        let brk = (start + 1..=limit).rev().find(|&i| chars[i - 1].is_whitespace() && i < chars.len()).unwrap_or(limit);
+        starts.push(brk);
+        start = brk;
+    }
+    starts
 }
 
 pub fn wrap_rows(fd: &FileDiff, rows: &Rows, cols: usize) -> Wrapped {
     let mut map = Vec::with_capacity(rows.rows.len());
     let mut starts = Vec::with_capacity(rows.rows.len() + 1);
-    let len = |idx: usize| display_chars(fd.line_text(&fd.lines[idx]));
+    let segs = |idx: usize| wrap_breaks(&display_text(fd.line_text(&fd.lines[idx])), cols).len();
     for (i, row) in rows.rows.iter().enumerate() {
         starts.push(map.len());
         let n = match row {
-            Row::Line { idx, .. } => segs(len(*idx), cols),
+            Row::Line { idx, .. } => segs(*idx),
             Row::Pair { left, right } => {
-                let l = left.as_ref().map(|c| segs(len(c.idx), cols)).unwrap_or(1);
-                let r = right.as_ref().map(|c| segs(len(c.idx), cols)).unwrap_or(1);
+                let l = left.as_ref().map(|c| segs(c.idx)).unwrap_or(1);
+                let r = right.as_ref().map(|c| segs(c.idx)).unwrap_or(1);
                 l.max(r)
             }
             Row::Hunk(_) | Row::Gap { .. } => 1,
@@ -249,10 +270,14 @@ pub fn wrap_rows(fd: &FileDiff, rows: &Rows, cols: usize) -> Wrapped {
     Wrapped { cols, map, starts }
 }
 
-/// Byte range of the `seg`-th chunk of `cols` characters in `s`.
+/// Byte range of the `seg`-th wrapped segment of `s` (empty past the end).
 pub fn segment_range(s: &str, seg: usize, cols: usize) -> std::ops::Range<usize> {
+    let breaks = wrap_breaks(s, cols);
     let byte_at = |ci: usize| s.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(s.len());
-    byte_at(seg * cols)..byte_at((seg + 1) * cols)
+    match breaks.get(seg) {
+        None => s.len()..s.len(),
+        Some(&from) => byte_at(from)..breaks.get(seg + 1).map(|&e| byte_at(e)).unwrap_or(s.len()),
+    }
 }
 
 /// Truncates display text at `MAX_LINE_CHARS` on a char boundary. Returns hidden char count.
@@ -361,7 +386,7 @@ mod tests {
         let d = sample(); // lines: "keep", "let a = 1;", "let b = 2;", "let a = 10;", "tail"
         let rows = build(&d, Layout::Unified);
         let w = wrap_rows(&d, &rows, 4);
-        // gap, hunk, keep(1), "let a = 1;"(3), "let b = 2;"(3), "let a = 10;"(3), tail(1)
+        // Word wrap at 4 cols: "let a = 1;" → "let ", "a = ", "1;" (3); "let a = 10;" → 3
         assert_eq!(w.segments(2), 1);
         assert_eq!(w.segments(3), 3);
         assert_eq!(w.map.len(), 1 + 1 + 1 + 3 + 3 + 3 + 1);
@@ -374,19 +399,31 @@ mod tests {
         let d = sample();
         let rows = build(&d, Layout::Split);
         let w = wrap_rows(&d, &rows, 5);
-        // pair (1: "let a = 1;" 10ch → 2, 3: "let a = 10;" 11ch → 3) → 3 visual rows
+        // pair (1: "let a = 1;" → 2 rows at 5 cols, 3: "let a = 10;" → 3) → 3 visual rows
         let pair_row = rows.rows.iter().position(|r| matches!(r, Row::Pair { left: Some(Cell { idx: 1, .. }), .. })).unwrap();
         assert_eq!(w.segments(pair_row), 3);
     }
 
     #[test]
     fn segment_ranges_are_char_safe() {
-        let s = "héllo wörld";
+        let s = "héllöwörld";
         assert_eq!(&s[segment_range(s, 0, 4)], "héll");
-        assert_eq!(&s[segment_range(s, 1, 4)], "o wö");
-        assert_eq!(&s[segment_range(s, 2, 4)], "rld");
+        assert_eq!(&s[segment_range(s, 1, 4)], "öwör");
+        assert_eq!(&s[segment_range(s, 2, 4)], "ld");
         assert_eq!(&s[segment_range(s, 3, 4)], "");
         assert_eq!(display_chars("\tab"), 6);
+    }
+
+    #[test]
+    fn wrap_breaks_at_word_boundaries() {
+        let s = "building a Zed/VS Code-style welcome screen";
+        let b = wrap_breaks(s, 20);
+        let segs: Vec<&str> = (0..b.len()).map(|i| &s[segment_range(s, i, 20)]).collect();
+        assert_eq!(segs, ["building a Zed/VS ", "Code-style welcome ", "screen"]);
+        assert!(segs.iter().all(|x| x.chars().count() <= 20));
+        // A word longer than the line is split hard.
+        assert_eq!(wrap_breaks("aaaaaaaaaa", 4), [0, 4, 8]);
+        assert_eq!(wrap_breaks("short", 10), [0]);
     }
 
     #[test]

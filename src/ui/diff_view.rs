@@ -20,15 +20,32 @@ use std::time::Duration;
 const CHAR_W: f32 = 8.4;
 
 impl Kerf {
+    /// Width of the diff text area (window minus sidebar, minimap and scrollbar).
+    fn pane_width(&self, window: &Window) -> f32 {
+        let mut w = f32::from(window.viewport_size().width) - MAP_WIDTH - SCROLL_WIDTH - 2.;
+        if self.sidebar_open {
+            w -= self.sidebar_w + 1.;
+        }
+        w
+    }
+
+    /// Split view: width of each half. Grows past the viewport (→ horizontal scroll) to fit
+    /// the longest line, unless wrapping.
+    fn split_half_width(&self, l: &Loaded, window: &Window) -> f32 {
+        let view = (self.pane_width(window) - 1.) / 2.;
+        if self.wrap {
+            return view;
+        }
+        let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
+        view.max(gutter + CHAR_W * 2. + l.widest_chars as f32 * CHAR_W + 24.)
+    }
+
     /// Soft-wrap layout for the loaded diff at the current pane width (cached per rows + width).
     fn wrapped_for(&mut self, l: &Arc<Loaded>, window: &Window) -> Option<Arc<Wrapped>> {
         if !self.wrap {
             return None;
         }
-        let mut pane_w = f32::from(window.viewport_size().width) - MAP_WIDTH - SCROLL_WIDTH - 2.;
-        if self.sidebar_open {
-            pane_w -= self.sidebar_w + 1.;
-        }
+        let pane_w = self.pane_width(window);
         let gutter = l.gutter_digits as f32 * CHAR_W + 16.;
         let split = self.layout == Layout::Split && l.rows.rows.iter().any(|r| matches!(r, Row::Pair { .. }));
         let avail = if split {
@@ -91,11 +108,12 @@ impl Kerf {
                         .when(stale && dim, |d| d.opacity(0.5))
                         .child({
                             let wrapped = self.wrapped_for(&l, window);
+                            let half_w = self.split_half_width(&l, window);
                             if let Some(row) = self.pending_top_row.take() {
                                 let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
                                 self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
                             }
-                            self.render_body(&l, wrapped, cx)
+                            self.render_body(&l, wrapped, half_w, cx)
                         }),
                 )
                 .into_any_element()
@@ -459,7 +477,7 @@ impl Kerf {
             )
     }
 
-    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, cx: &mut Context<Self>) -> AnyElement {
+    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, half_w: f32, cx: &mut Context<Self>) -> AnyElement {
         let fd = &l.fd;
         match &fd.body {
             DiffBody::Binary => {
@@ -525,19 +543,36 @@ impl Kerf {
                     .map(|ix| match &wrap {
                         Some(w) => {
                             let (row, seg) = w.map[ix];
-                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), cx)
+                            render_row(&loaded, ix, row as usize, Some((seg as usize, w.cols)), split.then_some(half_w), cx)
                         }
-                        None => render_row(&loaded, ix, ix, None, cx),
+                        None => render_row(&loaded, ix, ix, None, split.then_some(half_w), cx),
                     })
                     .collect::<Vec<_>>()
             }),
         )
         .track_scroll(self.diff_scroll.clone())
         .size_full()
-        .when(!split && wrapped.is_none(), |u| {
+        .when(wrapped.is_none(), |u| {
+            // Rows wider than the pane scroll horizontally (split rows have a fixed width).
             u.with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-                .with_width_from_item(l.widest_row)
+                .with_width_from_item(if split { Some(0) } else { l.widest_row })
         });
+        // Full-height columns behind the rows so gutters and the divider run to the bottom.
+        let scroll_x = -f32::from(self.diff_scroll.0.borrow().base_handle.offset().x);
+        let gutter_w = l.gutter_digits as f32 * CHAR_W + 16.;
+        let strip = |x: f32, w: f32| {
+            div().absolute().top_0().bottom_0().left(px(x)).w(px(w)).bg(theme::abyss()).border_r_1().border_color(theme::line())
+        };
+        let underlay = if split {
+            div()
+                .absolute()
+                .size_full()
+                .child(strip(-scroll_x, gutter_w))
+                .child(div().absolute().top_0().bottom_0().left(px(half_w - scroll_x)).w(px(1.)).bg(theme::line_hi()))
+                .child(strip(half_w + 1. - scroll_x, gutter_w))
+        } else {
+            div().absolute().size_full().child(strip(-scroll_x, gutter_w * 2.))
+        };
 
         let mut foot: Vec<AnyElement> = Vec::new();
         if fd.old_no_newline || fd.new_no_newline {
@@ -571,7 +606,7 @@ impl Kerf {
                     .min_h_0()
                     .flex()
                     .flex_row()
-                    .child(div().flex_1().min_w_0().h_full().child(list))
+                    .child(div().flex_1().min_w_0().h_full().relative().overflow_hidden().child(underlay).child(list))
                     .child(self.render_minimap(l, wrapped.as_deref(), cx))
                     .child(self.render_scrollbar(Bar::Diff, cx)),
             )
@@ -728,7 +763,7 @@ fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>], seg: Option<(usize, 
     };
     if hidden > 0 {
         let start = text.len();
-        text.push_str(&format!("  … {} more chars", thousands(hidden as u64)));
+        text.push_str(&format!("  … {hidden} more chars"));
         combined.push((start..text.len(), HighlightStyle { color: Some(theme::mute()), font_style: Some(FontStyle::Italic), ..Default::default() }));
     }
     if let Some((seg, cols)) = seg {
@@ -743,10 +778,14 @@ fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>], seg: Option<(usize, 
     StyledText::new(SharedString::from(text)).with_highlights(combined)
 }
 
-fn gutter(n: Option<u32>, digits: usize) -> Div {
+/// Line-number cell. Context lines use the gutter tone so the column reads like an editor's.
+fn gutter(n: Option<u32>, digits: usize, kind: LineKind) -> Div {
     div()
         .w(px(digits as f32 * CHAR_W + 16.))
+        .h_full()
         .flex_none()
+        .items_center()
+        .bg(if kind == LineKind::Context { theme::abyss() } else { line_bg(kind) })
         .pr(px(8.))
         .flex()
         .justify_end()
@@ -768,11 +807,19 @@ fn sign(kind: LineKind) -> Div {
         LineKind::Removed => ("−", theme::del_fg()),
         LineKind::Context => (" ", theme::mute()),
     };
-    div().w(px(CHAR_W * 2.)).flex_none().text_color(c).child(s)
+    div().w(px(CHAR_W * 2.)).pl(px(6.)).flex_none().text_color(c).child(s)
 }
 
 /// `vis` = visual row (element id), `ix` = logical row, `seg` = wrapped chunk to draw.
-fn render_row(l: &Arc<Loaded>, vis: usize, ix: usize, seg: Option<(usize, usize)>, cx: &mut Context<Kerf>) -> AnyElement {
+/// `half_w`: split view half width (fixed so rows scroll horizontally together).
+fn render_row(
+    l: &Arc<Loaded>,
+    vis: usize,
+    ix: usize,
+    seg: Option<(usize, usize)>,
+    half_w: Option<f32>,
+    cx: &mut Context<Kerf>,
+) -> AnyElement {
     let first = seg.map(|(s, _)| s == 0).unwrap_or(true);
     let row_base = || {
         div()
@@ -827,15 +874,15 @@ fn render_row(l: &Arc<Loaded>, vis: usize, ix: usize, seg: Option<(usize, usize)
             // Continuation rows of a wrapped line keep the tint but drop numbers and sign.
             row_base()
                 .bg(line_bg(line.kind))
-                .child(gutter(line.old_no.filter(|_| first), l.gutter_digits))
-                .child(gutter(line.new_no.filter(|_| first), l.gutter_digits))
+                .child(gutter(line.old_no.filter(|_| first), l.gutter_digits, line.kind))
+                .child(gutter(line.new_no.filter(|_| first), l.gutter_digits, line.kind).border_r_1().border_color(theme::line()))
                 .child(if first { sign(line.kind) } else { sign(LineKind::Context) })
                 .child(div().pr(px(24.)).child(line_text(l, *idx, emph, seg)))
                 .into_any_element()
         }
         Row::Pair { left, right } => {
             let half = |cell: &Option<diff::Cell>, old: bool| {
-                let base = div().flex_1().min_w_0().h_full().flex().items_center().overflow_hidden();
+                let base = div().w(px(half_w.unwrap_or(400.))).flex_none().h_full().flex().items_center().overflow_hidden();
                 match cell {
                     None => base.bg(theme::abyss()),
                     Some(c) => {
@@ -843,17 +890,18 @@ fn render_row(l: &Arc<Loaded>, vis: usize, ix: usize, seg: Option<(usize, usize)
                         let kind = line.kind;
                         let no = if old { line.old_no } else { line.new_no };
                         // Shorter side of a wrapped pair: keep the tint, no text on extra rows.
-                        let own_segs = seg.map(|(_, cols)| diff::display_chars(l.fd.line_text(line)).div_ceil(cols).max(1)).unwrap_or(1);
+                        let own_segs = seg
+                            .map(|(_, cols)| diff::wrap_breaks(&diff::display_text(l.fd.line_text(line)), cols).len())
+                            .unwrap_or(1);
                         let past_end = seg.is_some_and(|(s, _)| s >= own_segs);
                         base.bg(line_bg(kind))
-                            .child(gutter(no.filter(|_| first), l.gutter_digits))
+                            .child(gutter(no.filter(|_| first), l.gutter_digits, kind).border_r_1().border_color(theme::line()))
                             .child(if first { sign(kind) } else { sign(LineKind::Context) })
                             .when(!past_end, |d| d.child(line_text(l, c.idx, &c.emph, seg)))
                     }
                 }
             };
             row_base()
-                .w_full()
                 .child(half(left, true))
                 .child(div().w(px(1.)).h_full().flex_none().bg(theme::line_hi()))
                 .child(half(right, false))
