@@ -1,0 +1,140 @@
+# Kerf — Style Guide: *Black Metal*
+
+Visual-designer rules (Refactoring UI school): hierarchy through systems, not taste. Constrained scales. Dark only — there is no light theme and never will be.
+
+Mood: corpse-paint monochrome. Pure black void, bone-white type, ash greys, **one** cold accent (frost). Colour is reserved for meaning: moss = added, blood = removed, brass = modified/warning. Everything else is grey.
+
+## 1. Typography
+
+- **One face: JetBrains Mono** (UI *and* code). Resolved as `JetBrains Mono` → `JetBrainsMono Nerd Font Mono` → `JetBrainsMono Nerd Font` → system mono. Ligatures off in the diff (they lie about characters).
+- Tabular figures always (monospace gives this for free).
+- Weights: 400 regular, 500 medium (labels), 700 bold (file path in header, keywords). Never 300/800.
+
+| Token | px | Line-height | Use |
+|---|---|---|---|
+| `text.micro` | 10 | 14 | UPPERCASE section labels (`BASE`, `FILES`), status bar |
+| `text.control` | 11 | 16 | Buttons, toggles, badges, counts |
+| `text.list` | 12 | 24 (row) | Sidebar rows |
+| `text.code` | 13 | 20 | Diff lines, gutters |
+| `text.title` | 13 bold | 20 | File header path |
+| `text.display` | 20 | 28 | Empty-state headline only |
+
+No other sizes. Micro-labels are uppercase + 0.08em tracking — the signature. Body text is never uppercase.
+
+## 2. Colour tokens
+
+All values measured for WCAG contrast on their real surface (see §6).
+
+### Surfaces (darkest → lightest)
+| Token | Hex | Job |
+|---|---|---|
+| `bg.void` | `#000000` | Diff pane, editor canvas |
+| `bg.abyss` | `#0a0a0a` | Sidebar, status bar, titlebar |
+| `bg.crypt` | `#111111` | Sticky file header, hunk header rows, popovers |
+| `bg.ash` | `#1a1a1a` | Hover |
+| `bg.slate` | `#222222` | Selected row, active segment |
+| `line` | `#1c1c1c` | Hairlines (1px) between regions |
+| `line.hi` | `#2e2e2e` | Focus/hover hairlines, input borders |
+
+### Ink (text)
+| Token | Hex | On `void` | Job |
+|---|---|---|---|
+| `ink.bone` | `#e8e4dc` | 16.6:1 | Primary: code, file names |
+| `ink.body` | `#b3aea5` | 9.5:1 | Secondary: list rows, commit subjects |
+| `ink.mute` | `#7d7870` | 4.8:1 | Metadata: SHAs, ages, line numbers, micro-labels |
+| `ink.faint` | `#504c47` | 2.5:1 | Decoration only: disabled, gap dashes. Never for info. |
+
+Demote before you promote: make metadata quieter rather than making titles louder.
+
+### Meaning
+| Token | Hex | Job |
+|---|---|---|
+| `accent.frost` | `#a9c4d9` | Focus ring, selected-row bar, active tab underline, primary action. **Max one filled-frost element per region.** |
+| `add.fg` | `#8fc49a` | `+` glyph, `A` status, added counts |
+| `add.bg` | `#0b1a0f` | Added line tint |
+| `add.emph` | `#163d20` | Intra-line added word |
+| `del.fg` | `#e0706c` | `−` glyph, `D` status, removed counts |
+| `del.bg` | `#1f0a0a` | Removed line tint |
+| `del.emph` | `#44161a` | Intra-line removed word |
+| `mod.fg` | `#d4a95e` | `M` status, warnings (large-file gate) |
+| `ren.fg` | `#a9c4d9` | `R` status (shares frost) |
+
+Rule: status colour never appears without a glyph (A/M/D/R, +/−). Grayscale test must pass.
+
+### Syntax (restrained — code stays mostly bone)
+| Scope | Hex | Style |
+|---|---|---|
+| keyword / storage | `#c8c2b8` | bold |
+| function | `#e8e4dc` | regular |
+| type / class | `#b8c6d1` | regular |
+| string | `#a7b89a` | regular |
+| number / constant | `#d4a95e` | regular |
+| comment | `#6b6760` | italic |
+| punctuation / operator | `#8f8a82` | regular |
+| attribute / macro | `#c9b5a0` | regular |
+
+Syntax colours sit *on top of* add/del tints; both are tuned so contrast holds (lowest: comment on `del.bg` ≥ 3:1 — acceptable because comments are decorative-secondary).
+
+## 3. Spacing & geometry
+
+- **Scale (px):** 2 · 4 · 6 · 8 · 12 · 16 · 24 · 32. Nothing else.
+- Related items < 8 apart; groups ≥ 16 apart.
+- **Row heights:** list row 24 · diff line 20 · header 32 · titlebar 32 · status bar 22 · control 22.
+- **Sidebar:** default 300, min 220, max 50% window.
+- **Corners:** 0 on structure; 3px on controls/popovers/badges only.
+- **Hairlines:** 1px `line`. No borders heavier than 1px except the 2px selection bar.
+- **Shadows:** popovers only — `0 8px 24px rgba(0,0,0,0.8)` + 1px `line.hi` border.
+- **Gutters:** diff line-number columns 6ch each (grows with digit count), 1ch sign column, 8px padding.
+
+## 4. Iconography
+
+Text glyphs first (mono font renders them crisply): `▾ ▸ ⇄ ⫼ ≡ ⎵ ⋯ ↑ ↓ ✓`. Nerd Font glyphs allowed when the Nerd Font variant is present (git branch ``, commit ``), with ASCII fallback. No icon without a tooltip.
+
+## 5. Components
+
+| Component | Spec |
+|---|---|
+| **Section label** | `text.micro`, `ink.mute`, uppercase, 8px top / 4px bottom |
+| **List row** | 24h, 8px x-padding, `text.list` `ink.body`; hover `bg.ash`; selected `bg.slate` + 2px frost left bar + `ink.bone` |
+| **Status glyph** | 1ch wide, coloured letter A/M/D/R/C/T, `text.control` bold |
+| **Count badge** | `+42` add.fg, `−8` del.fg, `text.control`, right-aligned, tabular |
+| **Picker field** | 22h, `bg.crypt`, 1px `line.hi`, 3px radius, value `ink.bone`, chevron `ink.mute`; focus → frost border |
+| **Segmented toggle** | 22h, icon cells 24w, inactive `ink.mute`, active `bg.slate` + `ink.bone` |
+| **Tab** | `text.micro` uppercase, inactive `ink.mute`, active `ink.bone` + 1px frost underline, count in `ink.mute` |
+| **Hunk header** | 20h, `bg.crypt`, `@@ … @@` `ink.mute`, section context `ink.body` |
+| **Gap row** | 20h, `bg.void`, centred `⋯ N unchanged lines` `ink.faint`→hover `ink.mute` |
+| **Gate card** | Centered in pane, 1px `line.hi`, 16px padding, title `mod.fg`, button frost outline |
+| **Spinner** | 3-dot pulse in `ink.mute`, 12px |
+| **Scrollbar** | 8px, thumb `#2a2a2a`, hover `#3a3a3a`; hunk markers in add/del fg on track |
+
+## 6. Measured contrast (WCAG 2.2)
+
+| Pair | Ratio | Req | ✓ |
+|---|---|---|---|
+| bone on void | 16.56 | 4.5 | ✓ |
+| body on abyss | 8.97 | 4.5 | ✓ |
+| mute on void | 4.79 | 4.5 | ✓ |
+| mute on abyss | 4.52 | 4.5 | ✓ |
+| mute on ash (hover) | 3.97 | 3.0 (UI) | ✓ metadata only |
+| add.fg on add.bg | 9.01 | 4.5 | ✓ |
+| add.fg on add.emph | 6.11 | 4.5 | ✓ |
+| del.fg on del.bg | 6.06 | 4.5 | ✓ |
+| del.fg on del.emph | 4.87 | 4.5 | ✓ |
+| bone on add.emph | 9.62 | 4.5 | ✓ |
+| bone on del.emph | 12.04 | 4.5 | ✓ |
+| frost on void | 11.58 | 3.0 | ✓ |
+| brass on void | 9.64 | 4.5 | ✓ |
+| comment on void | 3.73 | — | decorative |
+
+## 7. Motion
+
+Almost none. Hover/selection: instant. Popover: 80 ms fade. Spinner only after 150 ms. Never two things animating at once.
+
+## 8. Ship checklist (per screen)
+
+- [ ] Squint: diff content > list > metadata, primary action obvious
+- [ ] Grayscale: glyphs carry status
+- [ ] All sizes/spaces/colours from tokens (no literals outside `theme.rs`)
+- [ ] One frost-filled element per region max
+- [ ] No light surface anywhere
+- [ ] Longest-path test: middle-ellipsis + tooltip
