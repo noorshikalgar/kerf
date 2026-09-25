@@ -1,0 +1,29 @@
+[package]
+name = "kerf"
+version = "0.1.0"
+edition = "2021"
+description = "Fast native Git branch diff viewer"
+license = "MIT"
+repository = "https://github.com/noorshikalgar/kerf"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kerf"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+git2 = { version = "0.21", default-features = false }
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+similar = "2"
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.dev.package."*"]
+opt-level = 2
