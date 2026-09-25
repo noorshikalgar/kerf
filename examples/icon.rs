@@ -78,7 +78,8 @@ fn main() {
         fs::write(out.join(format!("kerf-{px}.png")), render(&svg(px), px)).unwrap();
     }
     // Apple iconset naming: icon_<pt>x<pt>[@2x].png
-    for (pt, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
+    for (pt, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
+    {
         let px = pt * scale;
         let name = if scale == 1 { format!("icon_{pt}x{pt}.png") } else { format!("icon_{pt}x{pt}@2x.png") };
         fs::write(set.join(name), render(&svg(px), px)).unwrap();

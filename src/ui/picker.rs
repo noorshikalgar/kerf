@@ -6,8 +6,8 @@ use super::widgets::{age, micro, ref_icon, ref_icon_color};
 use crate::git::{short_sha, RefKind};
 use crate::theme;
 use gpui::{
-    div, prelude::*, px, AnyElement, Context, Div, FontWeight, HighlightStyle, SharedString, Stateful,
-    StyledText, Window,
+    div, prelude::*, px, AnyElement, Context, Div, FontWeight, HighlightStyle, SharedString, Stateful, StyledText,
+    Window,
 };
 
 const MAX_SHOWN: usize = 200;
@@ -26,7 +26,11 @@ fn highlighted(label: &str, positions: &[usize]) -> StyledText {
             let (b, ch) = label.char_indices().nth(ci)?;
             Some((
                 b..b + ch.len_utf8(),
-                HighlightStyle { color: Some(theme::frost()), font_weight: Some(FontWeight::BOLD), ..Default::default() },
+                HighlightStyle {
+                    color: Some(theme::frost()),
+                    font_weight: Some(FontWeight::BOLD),
+                    ..Default::default()
+                },
             ))
         })
         .collect();
@@ -115,32 +119,62 @@ impl Kerf {
                                 .text_color(name_color)
                                 .child(highlighted(&r.name, positions)),
                         )
-                        .when(r.is_head, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::add_fg()).child("HEAD")))
-                        .when(is_current, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current")))
-                        .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(short_sha(r.target)))
+                        .when(r.is_head, |d| {
+                            d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::add_fg()).child("HEAD"))
+                        })
+                        .when(is_current, |d| {
+                            d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current"))
+                        })
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::mute())
+                                .child(short_sha(r.target)),
+                        )
                         .child(age_cell(r.time))
                 }
                 PickItem::Commit(i) => {
                     let c = &self.commits[*i];
                     let is_current = current.as_deref().is_some_and(|v| c.oid.to_string().starts_with(v));
                     let label = commit_label(c);
-                    row.child(div().w(px(16.)).flex_none().text_color(ref_icon_color(RefLook::Commit)).child(ref_icon(RefLook::Commit, nerd)))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .text_color(name_color)
-                                .child(highlighted(&label, positions)),
-                        )
-                        .when(is_current, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current")))
-                        .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
-                        .child(age_cell(c.time))
+                    row.child(
+                        div()
+                            .w(px(16.))
+                            .flex_none()
+                            .text_color(ref_icon_color(RefLook::Commit))
+                            .child(ref_icon(RefLook::Commit, nerd)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .text_color(name_color)
+                            .child(highlighted(&label, positions)),
+                    )
+                    .when(is_current, |d| {
+                        d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current"))
+                    })
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(theme::TEXT_CONTROL)
+                            .text_color(theme::mute())
+                            .child(c.author.clone()),
+                    )
+                    .child(age_cell(c.time))
                 }
                 PickItem::Raw(q) => row
-                    .child(div().w(px(16.)).flex_none().text_color(ref_icon_color(RefLook::Rev)).child(ref_icon(RefLook::Rev, nerd)))
+                    .child(
+                        div()
+                            .w(px(16.))
+                            .flex_none()
+                            .text_color(ref_icon_color(RefLook::Rev))
+                            .child(ref_icon(RefLook::Rev, nerd)),
+                    )
                     .child(div().flex_1().text_color(name_color).child(format!("Use “{q}” as revision"))),
             };
             rows.push(el.into_any_element());
@@ -203,9 +237,15 @@ impl Kerf {
                                         .text_size(theme::TEXT_LIST)
                                         .child(div().text_color(theme::frost()).mr(px(6.)).child("›"))
                                         .when(p.query.is_empty(), |d| {
-                                            d.child(div().text_color(theme::mute()).child("branch, tag, commit message or SHA…"))
+                                            d.child(
+                                                div()
+                                                    .text_color(theme::mute())
+                                                    .child("branch, tag, commit message or SHA…"),
+                                            )
                                         })
-                                        .when(!p.query.is_empty(), |d| d.child(div().text_color(theme::bone()).child(p.query.clone())))
+                                        .when(!p.query.is_empty(), |d| {
+                                            d.child(div().text_color(theme::bone()).child(p.query.clone()))
+                                        })
                                         .child(div().w(px(1.)).h(px(16.)).bg(theme::frost())),
                                 ),
                         )
@@ -224,7 +264,9 @@ impl Kerf {
                                 .child("↑↓ move")
                                 .child("↵ pick")
                                 .child("esc close")
-                                .when(overflow > 0, |d| d.child(div().flex_1()).child(format!("+{overflow} more — keep typing"))),
+                                .when(overflow > 0, |d| {
+                                    d.child(div().flex_1()).child(format!("+{overflow} more — keep typing"))
+                                }),
                         ),
                 )
                 .into_any_element(),

@@ -94,12 +94,9 @@ impl Kerf {
                                         .child("Esc"),
                                 ),
                         )
-                        .child(
-                            div()
-                                .text_size(theme::TEXT_LIST)
-                                .text_color(theme::body())
-                                .child(format!("Both compare {base} (base) with {cmp} (compare). They differ in the starting point.")),
-                        )
+                        .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child(format!(
+                            "Both compare {base} (base) with {cmp} (compare). They differ in the starting point."
+                        )))
                         .child(
                             div()
                                 .p(px(12.))
@@ -124,7 +121,11 @@ impl Kerf {
                                     mode == RangeMode::PrMerge,
                                     "What would this PR merge?",
                                     "From ● to C2",
-                                    &["Shows only C1 + C2 — the work done on compare.", "Ignores B1 + B2 (new commits on base).", "Same as GitHub’s “Files changed” tab."],
+                                    &[
+                                        "Shows only C1 + C2 — the work done on compare.",
+                                        "Ignores B1 + B2 (new commits on base).",
+                                        "Same as GitHub’s “Files changed” tab.",
+                                    ],
                                     "Reviewing a feature branch, self-review before opening a PR.",
                                     theme::add_fg(),
                                 ))
@@ -133,7 +134,11 @@ impl Kerf {
                                     mode == RangeMode::Compare,
                                     "How do the two tips differ right now?",
                                     "From B2 to C2",
-                                    &["Shows C1 + C2 and B1 + B2 reversed.", "Work only on base looks “removed”.", "Exactly what changes if compare replaced base."],
+                                    &[
+                                        "Shows C1 + C2 and B1 + B2 reversed.",
+                                        "Work only on base looks “removed”.",
+                                        "Exactly what changes if compare replaced base.",
+                                    ],
                                     "Releases, tags, two arbitrary commits, deploy diffs.",
                                     theme::frost(),
                                 )),
@@ -195,8 +200,16 @@ fn mode_card(
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::BOLD).text_color(accent).child(mode.label()))
-                .when(active, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current"))),
+                .child(
+                    div()
+                        .text_size(theme::TEXT_LIST)
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(accent)
+                        .child(mode.label()),
+                )
+                .when(active, |d| {
+                    d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Current"))
+                }),
         )
         .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(mode.git()))
         .child(div().text_size(theme::TEXT_LIST).text_color(theme::bone()).child(question.to_string()))
@@ -229,5 +242,9 @@ fn example_row(label: &str, items: &[(&str, Hsla)]) -> Div {
         .border_b_1()
         .border_color(theme::line())
         .child(div().w(px(140.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(label.to_string()))
-        .children(items.iter().map(|(t, c)| div().flex_none().text_size(theme::TEXT_LIST).text_color(*c).child(t.to_string())))
+        .children(
+            items
+                .iter()
+                .map(|(t, c)| div().flex_none().text_size(theme::TEXT_LIST).text_color(*c).child(t.to_string())),
+        )
 }

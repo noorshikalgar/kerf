@@ -8,9 +8,8 @@ use crate::git::{short_sha, ChangeStatus, DiffBody, LineKind};
 use crate::highlight::Syn;
 use crate::theme;
 use gpui::{
-    div, prelude::*, px, relative, uniform_list, AnyElement, Context, Div, FontStyle, FontWeight,
-    HighlightStyle, Hsla, SharedString, StyledText,
-    Window,
+    div, prelude::*, px, relative, uniform_list, AnyElement, Context, Div, FontStyle, FontWeight, HighlightStyle, Hsla,
+    SharedString, StyledText, Window,
 };
 use std::ops::Range;
 use std::sync::Arc;
@@ -107,30 +106,22 @@ impl Kerf {
             pane = pane.child(self.render_commit_banner(c, cx));
         }
         if let Some(msg) = error {
-            return pane
-                .child(notice("Could not diff this file", &msg, theme::del_fg()))
-                .into_any_element();
+            return pane.child(notice("Could not diff this file", &msg, theme::del_fg())).into_any_element();
         }
         match loaded {
             None => pane.child(div().flex_1()).into_any_element(),
             Some((l, dim)) => {
                 // Stale diff for another file while loading → dim it.
                 let stale = l.target.key() != target.key();
-                pane.child(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .when(stale && dim, |d| d.opacity(0.5))
-                        .child({
-                            let wrapped = self.wrapped_for(&l, window);
-                            let geo = self.geometry(&l, window);
-                            if let Some(row) = self.pending_top_row.take() {
-                                let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
-                                self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
-                            }
-                            self.render_body(&l, wrapped, geo, cx)
-                        }),
-                )
+                pane.child(div().flex_1().min_h_0().when(stale && dim, |d| d.opacity(0.5)).child({
+                    let wrapped = self.wrapped_for(&l, window);
+                    let geo = self.geometry(&l, window);
+                    if let Some(row) = self.pending_top_row.take() {
+                        let v = wrapped.as_ref().map(|w| w.starts[row.min(w.starts.len() - 1)]).unwrap_or(row);
+                        self.diff_scroll.scroll_to_item_strict(v, gpui::ScrollStrategy::Top);
+                    }
+                    self.render_body(&l, wrapped, geo, cx)
+                }))
                 .into_any_element()
             }
         }
@@ -189,10 +180,7 @@ impl Kerf {
                         }
                         this.activate_tab(i, cx);
                     }))
-                    .on_mouse_down(
-                        gpui::MouseButton::Middle,
-                        cx.listener(move |this, _, _, cx| this.close_tab(i, cx)),
-                    )
+                    .on_mouse_down(gpui::MouseButton::Middle, cx.listener(move |this, _, _, cx| this.close_tab(i, cx)))
                     .child(status_glyph(c.status))
                     .child(
                         div()
@@ -283,7 +271,13 @@ impl Kerf {
             .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(c.author.clone()))
             .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time)))
             .when(c.is_merge(), |d| {
-                d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE · vs first parent"))
+                d.child(
+                    div()
+                        .flex_none()
+                        .text_size(theme::TEXT_MICRO)
+                        .text_color(theme::frost())
+                        .child("MERGE · vs first parent"),
+                )
             })
             .when(!open, |d| {
                 d.child(
@@ -319,7 +313,13 @@ impl Kerf {
                         .flex()
                         .flex_col()
                         .gap(px(6.))
-                        .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::MEDIUM).text_color(theme::bone()).child(c.summary.clone()))
+                        .child(
+                            div()
+                                .text_size(theme::TEXT_LIST)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::bone())
+                                .child(c.summary.clone()),
+                        )
                         .when(!body.is_empty(), |d| {
                             d.child(
                                 div()
@@ -379,7 +379,13 @@ impl Kerf {
                 .bg(theme::abyss())
                 .cursor_pointer()
                 .hover(|s| s.border_color(theme::frost()).bg(theme::crypt()))
-                .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::MEDIUM).text_color(theme::bone()).child(label))
+                .child(
+                    div()
+                        .text_size(theme::TEXT_LIST)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::bone())
+                        .child(label),
+                )
                 .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(sub))
         };
         div()
@@ -389,7 +395,13 @@ impl Kerf {
             .items_center()
             .justify_center()
             .gap(px(16.))
-            .child(div().text_size(theme::TEXT_DISPLAY).font_weight(FontWeight::BOLD).text_color(theme::bone()).child(title))
+            .child(
+                div()
+                    .text_size(theme::TEXT_DISPLAY)
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme::bone())
+                    .child(title),
+            )
             .child(div().text_size(theme::TEXT_LIST).text_color(theme::mute()).child(sub))
             .child(
                 div()
@@ -402,7 +414,10 @@ impl Kerf {
                                 .on_click(cx.listener(|this, _, _, cx| this.prompt_open(cx))),
                         )
                     })
-                    .child(action("w-new", "New Diff", "Paste two texts").on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))))
+                    .child(
+                        action("w-new", "New Diff", "Paste two texts")
+                            .on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))),
+                    )
                     .child(
                         action("w-files", "Compare Files", "Pick any two files")
                             .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
@@ -428,7 +443,9 @@ impl Kerf {
             _ => c.path.clone().into(),
         };
         let (add, del) = match loaded.filter(|l| l.target.key() == target.key()) {
-            Some(l) if matches!(l.fd.body, DiffBody::Text) => (Some(l.fd.additions() as u64), Some(l.fd.deletions() as u64)),
+            Some(l) if matches!(l.fd.body, DiffBody::Text) => {
+                (Some(l.fd.additions() as u64), Some(l.fd.deletions() as u64))
+            }
             _ => (c.additions.map(u64::from), c.deletions.map(u64::from)),
         };
         let split = self.layout == Layout::Split;
@@ -454,7 +471,9 @@ impl Kerf {
                     .text_color(theme::bone())
                     .child(path),
             )
-            .when_some(c.similarity, |d, s| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(format!("{s}%"))))
+            .when_some(c.similarity, |d, s| {
+                d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(format!("{s}%")))
+            })
             .when(c.mode_changed(), |d| {
                 d.child(
                     div()
@@ -487,7 +506,13 @@ impl Kerf {
             )
     }
 
-    fn render_body(&self, l: &Arc<Loaded>, wrapped: Option<Arc<Wrapped>>, geo: Geo, cx: &mut Context<Self>) -> AnyElement {
+    fn render_body(
+        &self,
+        l: &Arc<Loaded>,
+        wrapped: Option<Arc<Wrapped>>,
+        geo: Geo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let fd = &l.fd;
         match &fd.body {
             DiffBody::Binary => {
@@ -505,7 +530,12 @@ impl Kerf {
             DiffBody::TooLarge => {
                 return gate(
                     "Large diff",
-                    &format!("{} → {} · above the {} safety limit", bytes(fd.old_size), bytes(fd.new_size), bytes(20 * 1024 * 1024)),
+                    &format!(
+                        "{} → {} · above the {} safety limit",
+                        bytes(fd.old_size),
+                        bytes(fd.new_size),
+                        bytes(20 * 1024 * 1024)
+                    ),
                     "Load anyway ↵",
                     cx,
                 )
@@ -513,7 +543,9 @@ impl Kerf {
             }
             DiffBody::Text => {}
         }
-        if self.showing_collapsed_generated() && l.target.key() == self.current_target().map(|t| t.key()).unwrap_or_default() {
+        if self.showing_collapsed_generated()
+            && l.target.key() == self.current_target().map(|t| t.key()).unwrap_or_default()
+        {
             let c = &l.target.change;
             return gate(
                 "Generated file",
@@ -565,7 +597,15 @@ impl Kerf {
         let half_w = geo.split.map(|(lw, _)| lw).unwrap_or(0.);
         let gutter_w = l.gutter_digits as f32 * CHAR_W + 16.;
         let strip = |x: f32, w: f32| {
-            div().absolute().top_0().bottom_0().left(px(x)).w(px(w)).bg(theme::abyss()).border_r_1().border_color(theme::line())
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(x))
+                .w(px(w))
+                .bg(theme::abyss())
+                .border_r_1()
+                .border_color(theme::line())
         };
         let underlay = if geo.split.is_some() {
             div()
@@ -653,7 +693,11 @@ impl Kerf {
             .cursor_col_resize()
             .flex()
             .justify_center()
-            .child(div().w(px(if self.split_drag { 2. } else { 1. })).h_full().bg(if self.split_drag { theme::frost() } else { gpui::transparent_black() }))
+            .child(div().w(px(if self.split_drag { 2. } else { 1. })).h_full().bg(if self.split_drag {
+                theme::frost()
+            } else {
+                gpui::transparent_black()
+            }))
             .hover(|s| s.bg(theme::line_hi().opacity(0.5)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
@@ -765,7 +809,9 @@ fn notice(title: &str, detail: &str, color: Hsla) -> Div {
         .items_center()
         .justify_center()
         .gap(px(6.))
-        .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::BOLD).text_color(color).child(title.to_string()))
+        .child(
+            div().text_size(theme::TEXT_LIST).font_weight(FontWeight::BOLD).text_color(color).child(title.to_string()),
+        )
         .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(detail.to_string()))
 }
 
@@ -780,7 +826,13 @@ fn gate(title: &str, detail: &str, action: &'static str, cx: &mut Context<Kerf>)
             .border_color(theme::line_hi())
             .rounded(theme::RADIUS)
             .bg(theme::crypt())
-            .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::BOLD).text_color(theme::mod_fg()).child(title.to_string()))
+            .child(
+                div()
+                    .text_size(theme::TEXT_LIST)
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme::mod_fg())
+                    .child(title.to_string()),
+            )
             .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::body()).child(detail.to_string()))
             .child(
                 div()
@@ -852,7 +904,10 @@ fn line_text(l: &Loaded, idx: usize, emph: &[Range<usize>], seg: Option<(usize, 
     if hidden > 0 {
         let start = text.len();
         text.push_str(&format!("  … {hidden} more chars"));
-        combined.push((start..text.len(), HighlightStyle { color: Some(theme::mute()), font_style: Some(FontStyle::Italic), ..Default::default() }));
+        combined.push((
+            start..text.len(),
+            HighlightStyle { color: Some(theme::mute()), font_style: Some(FontStyle::Italic), ..Default::default() },
+        ));
     }
     if let Some((seg, cols)) = seg {
         let r = diff::segment_range(&text, seg, cols);
@@ -974,7 +1029,11 @@ fn render_row(
             row_base()
                 .bg(line_bg(line.kind))
                 .child(gutter(line.old_no.filter(|_| first), l.gutter_digits, line.kind))
-                .child(gutter(line.new_no.filter(|_| first), l.gutter_digits, line.kind).border_r_1().border_color(theme::line()))
+                .child(
+                    gutter(line.new_no.filter(|_| first), l.gutter_digits, line.kind)
+                        .border_r_1()
+                        .border_color(theme::line()),
+                )
                 .child(if first { sign(line.kind) } else { sign(LineKind::Context) })
                 .child(scrolled(line_text(l, *idx, emph, seg)))
                 .on_scroll_wheel(cx.listener(Kerf::on_diff_wheel))
@@ -983,7 +1042,8 @@ fn render_row(
         Row::Pair { left, right } => {
             let (lw, rw) = geo.split.unwrap_or((400., 400.));
             let half = |cell: &Option<diff::Cell>, old: bool| {
-                let base = div().w(px(if old { lw } else { rw })).flex_none().h_full().flex().items_center().overflow_hidden();
+                let base =
+                    div().w(px(if old { lw } else { rw })).flex_none().h_full().flex().items_center().overflow_hidden();
                 match cell {
                     None => base.bg(theme::abyss()),
                     Some(c) => {
@@ -996,7 +1056,11 @@ fn render_row(
                             .unwrap_or(1);
                         let past_end = seg.is_some_and(|(s, _)| s >= own_segs);
                         base.bg(line_bg(kind))
-                            .child(gutter(no.filter(|_| first), l.gutter_digits, kind).border_r_1().border_color(theme::line()))
+                            .child(
+                                gutter(no.filter(|_| first), l.gutter_digits, kind)
+                                    .border_r_1()
+                                    .border_color(theme::line()),
+                            )
                             .child(if first { sign(kind) } else { sign(LineKind::Context) })
                             .when(!past_end, |d| d.child(scrolled(line_text(l, c.idx, &c.emph, seg))))
                     }

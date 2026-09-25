@@ -6,8 +6,8 @@ mod editor;
 mod info;
 mod picker;
 mod scratch;
-mod shortcuts;
 mod scrollbar;
+mod shortcuts;
 mod sidebar;
 mod state;
 mod welcome;
@@ -27,8 +27,8 @@ pub enum Launch {
 }
 
 use gpui::{
-    actions, point, px, size, App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, SystemMenuType, TitlebarOptions,
-    WindowBackgroundAppearance, WindowBounds, WindowOptions,
+    actions, point, px, size, App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, SystemMenuType,
+    TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowOptions,
 };
 use std::path::PathBuf;
 
@@ -84,6 +84,10 @@ actions!(
 /// matches at the deepest level in gpui and would override the editor's Enter / arrows / ⌘V;
 /// scoped, the editor's (deeper) `KerfEditor` bindings win while it has focus.
 const ROOT: &str = "Kerf || KerfInput";
+/// Single-key app shortcuts (j k n p s w …): only while no text input is active *and* no
+/// editor is in the focus path (`!` checks the whole context stack, so this holds even on
+/// the first frame after focus moves into an editor).
+const LETTERS: &str = "Kerf && !KerfEditor";
 
 /// All app-level key bindings.
 fn app_bindings() -> Vec<KeyBinding> {
@@ -116,32 +120,32 @@ fn app_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", Confirm, Some(ROOT)),
         KeyBinding::new("escape", Cancel, Some(ROOT)),
         // Single-letter keys only when no text input is active.
-        KeyBinding::new("k", Up, Some("Kerf")),
-        KeyBinding::new("j", Down, Some("Kerf")),
-        KeyBinding::new("left", Left, Some("Kerf")),
-        KeyBinding::new("right", Right, Some("Kerf")),
-        KeyBinding::new("h", Left, Some("Kerf")),
-        KeyBinding::new("l", Right, Some("Kerf")),
-        KeyBinding::new("]", NextFile, Some("Kerf")),
-        KeyBinding::new("[", PrevFile, Some("Kerf")),
-        KeyBinding::new("n", NextHunk, Some("Kerf")),
-        KeyBinding::new("p", PrevHunk, Some("Kerf")),
-        KeyBinding::new("s", ToggleSplit, Some("Kerf")),
-        KeyBinding::new("w", ToggleWhitespace, Some("Kerf")),
-        KeyBinding::new("z", ToggleWrap, Some("Kerf")),
-        KeyBinding::new("t", ToggleTree, Some("Kerf")),
-        KeyBinding::new("y", CopyItem, Some("Kerf")),
-        KeyBinding::new("b", SetBase, Some("Kerf")),
-        KeyBinding::new("c", SetCompare, Some("Kerf")),
-        KeyBinding::new("?", ShowInfo, Some("Kerf")),
-        KeyBinding::new("shift-/", ShowInfo, Some("Kerf")),
-        KeyBinding::new("/", FocusFilter, Some("Kerf")),
-        KeyBinding::new("pageup", PageUp, Some("Kerf")),
-        KeyBinding::new("pagedown", PageDown, Some("Kerf")),
-        KeyBinding::new("space", PageDown, Some("Kerf")),
-        KeyBinding::new("shift-space", PageUp, Some("Kerf")),
-        KeyBinding::new("g", Top, Some("Kerf")),
-        KeyBinding::new("shift-g", Bottom, Some("Kerf")),
+        KeyBinding::new("k", Up, Some(LETTERS)),
+        KeyBinding::new("j", Down, Some(LETTERS)),
+        KeyBinding::new("left", Left, Some(LETTERS)),
+        KeyBinding::new("right", Right, Some(LETTERS)),
+        KeyBinding::new("h", Left, Some(LETTERS)),
+        KeyBinding::new("l", Right, Some(LETTERS)),
+        KeyBinding::new("]", NextFile, Some(LETTERS)),
+        KeyBinding::new("[", PrevFile, Some(LETTERS)),
+        KeyBinding::new("n", NextHunk, Some(LETTERS)),
+        KeyBinding::new("p", PrevHunk, Some(LETTERS)),
+        KeyBinding::new("s", ToggleSplit, Some(LETTERS)),
+        KeyBinding::new("w", ToggleWhitespace, Some(LETTERS)),
+        KeyBinding::new("z", ToggleWrap, Some(LETTERS)),
+        KeyBinding::new("t", ToggleTree, Some(LETTERS)),
+        KeyBinding::new("y", CopyItem, Some(LETTERS)),
+        KeyBinding::new("b", SetBase, Some(LETTERS)),
+        KeyBinding::new("c", SetCompare, Some(LETTERS)),
+        KeyBinding::new("?", ShowInfo, Some(LETTERS)),
+        KeyBinding::new("shift-/", ShowInfo, Some(LETTERS)),
+        KeyBinding::new("/", FocusFilter, Some(LETTERS)),
+        KeyBinding::new("pageup", PageUp, Some(LETTERS)),
+        KeyBinding::new("pagedown", PageDown, Some(LETTERS)),
+        KeyBinding::new("space", PageDown, Some(LETTERS)),
+        KeyBinding::new("shift-space", PageUp, Some(LETTERS)),
+        KeyBinding::new("g", Top, Some(LETTERS)),
+        KeyBinding::new("shift-g", Bottom, Some(LETTERS)),
     ]
 }
 
@@ -260,5 +264,10 @@ mod tests {
         assert_eq!(resolve("j", &["Kerf"]), "kerf::Down");
         // Single-letter app keys are off while a text input is active.
         assert_eq!(resolve("j", &["KerfInput"]), "");
+        // Even if the root still says "Kerf" (focus just moved), an editor in the stack wins.
+        assert_eq!(resolve("h", &["Kerf", "KerfEditor"]), "");
     }
 }
+
+#[cfg(test)]
+mod tests_ui;

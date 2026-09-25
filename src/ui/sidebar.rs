@@ -5,8 +5,8 @@ use super::widgets::{self, age, counts, micro, seg, status_glyph};
 use crate::git::{short_sha, RangeMode};
 use crate::theme;
 use gpui::{
-    div, prelude::*, px, uniform_list, AnyElement, Context, HighlightStyle, MouseButton, SharedString,
-    StyledText, Window,
+    div, prelude::*, px, uniform_list, AnyElement, Context, HighlightStyle, MouseButton, SharedString, StyledText,
+    Window,
 };
 
 impl Kerf {
@@ -40,7 +40,13 @@ impl Kerf {
                 }
             })
             .child(widgets::app_icon(16.))
-            .child(div().text_size(theme::TEXT_LIST).font_weight(gpui::FontWeight::BOLD).text_color(theme::bone()).child("kerf"))
+            .child(
+                div()
+                    .text_size(theme::TEXT_LIST)
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(theme::bone())
+                    .child("kerf"),
+            )
             .child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
             // Repository switcher: always reachable, from git or plain-diff mode.
             .child({
@@ -152,7 +158,9 @@ impl Kerf {
             .when(self.repo_path.is_some(), |d| {
                 d.child(self.render_range_bar(cx))
                     .child(self.render_tabs(cx))
-                    .when(self.tab == Tab::Files && self.range_data().is_some(), |d| d.child(self.render_list_toolbar(cx)))
+                    .when(self.tab == Tab::Files && self.range_data().is_some(), |d| {
+                        d.child(self.render_list_toolbar(cx))
+                    })
                     .child(self.render_list(window, cx))
             })
     }
@@ -230,7 +238,15 @@ impl Kerf {
                                 .gap(px(6.))
                                 .text_size(theme::TEXT_CONTROL)
                                 .text_color(theme::mute())
-                                .child(div().flex_shrink().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(path))
+                                .child(
+                                    div()
+                                        .flex_shrink()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .whitespace_nowrap()
+                                        .child(path),
+                                )
                                 .when_some(head, |d, h| {
                                     d.child(div().flex_none().text_color(theme::faint()).child("·")).child(
                                         div()
@@ -238,7 +254,11 @@ impl Kerf {
                                             .flex_none()
                                             .gap(px(4.))
                                             .text_color(theme::body())
-                                            .child(div().text_color(theme::add_fg()).child(widgets::ref_icon(RefLook::Branch, nerd)))
+                                            .child(
+                                                div()
+                                                    .text_color(theme::add_fg())
+                                                    .child(widgets::ref_icon(RefLook::Branch, nerd)),
+                                            )
                                             .child(h),
                                     )
                                 }),
@@ -290,7 +310,12 @@ impl Kerf {
                     .items_center()
                     .gap(px(6.))
                     .text_size(theme::TEXT_LIST)
-                    .child(div().flex_none().text_color(widgets::ref_icon_color(d.look)).child(widgets::ref_icon(d.look, nerd)))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(widgets::ref_icon_color(d.look))
+                            .child(widgets::ref_icon(d.look, nerd)),
+                    )
                     .child(
                         div()
                             .flex_none()
@@ -337,8 +362,18 @@ impl Kerf {
             match (&self.range, &data) {
                 (RangeState::Loading, _) => vec![widgets::spinner().into_any_element()],
                 (_, Some(data)) => vec![
-                    stat_pill(format!("↑ {}", data.cmp.ahead.len()), theme::add_fg(), "Commits in compare, not in base").into_any_element(),
-                    stat_pill(format!("↓ {}", data.cmp.behind.len()), theme::mod_fg(), "Commits in base, not in compare").into_any_element(),
+                    stat_pill(
+                        format!("↑ {}", data.cmp.ahead.len()),
+                        theme::add_fg(),
+                        "Commits in compare, not in base",
+                    )
+                    .into_any_element(),
+                    stat_pill(
+                        format!("↓ {}", data.cmp.behind.len()),
+                        theme::mod_fg(),
+                        "Commits in base, not in compare",
+                    )
+                    .into_any_element(),
                 ],
                 _ => Vec::new(),
             }
@@ -362,7 +397,14 @@ impl Kerf {
                 cx.notify();
             }))
             .child(widgets::chevron(open, nerd))
-            .child(div().flex_none().text_size(theme::TEXT_CONTROL).font_weight(gpui::FontWeight::MEDIUM).text_color(theme::body()).child("Comparison"))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(theme::TEXT_CONTROL)
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(theme::body())
+                    .child("Comparison"),
+            )
             .when(!open, |d| {
                 d.child(
                     div()
@@ -379,61 +421,57 @@ impl Kerf {
             })
             .when(open, |d| d.child(div().flex_1()));
 
-        let body = div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .px(px(12.))
-            .pb(px(12.))
-            // 1. What vs what
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.))
-                            .child(self.range_field(Which::Base, cx))
-                            .child(self.range_field(Which::Compare, cx)),
-                    )
-                    .child(
-                        div()
-                            .id("swap")
-                            .w(px(28.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(theme::RADIUS)
-                            .border_1()
-                            .border_color(theme::line_hi())
-                            .text_size(theme::TEXT_CODE)
-                            .text_color(theme::body())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::ash()).text_color(theme::bone()).border_color(theme::mute()))
-                            .tooltip(|_, cx| cx.new(|_| widgets::Tip("Swap base and compare  ⌘⇧S")).into())
-                            .on_click(cx.listener(|this, _, _, cx| this.swap(cx)))
-                            .child("⇅"),
-                    ),
-            )
-            .child(div().h(px(1.)).bg(theme::line()))
-            // 2. Which view
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .child(micro("View"))
-                            .child(div().flex_1())
-                            .child(
+        let body =
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .px(px(12.))
+                .pb(px(12.))
+                // 1. What vs what
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.))
+                                .child(self.range_field(Which::Base, cx))
+                                .child(self.range_field(Which::Compare, cx)),
+                        )
+                        .child(
+                            div()
+                                .id("swap")
+                                .w(px(28.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(theme::RADIUS)
+                                .border_1()
+                                .border_color(theme::line_hi())
+                                .text_size(theme::TEXT_CODE)
+                                .text_color(theme::body())
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme::ash()).text_color(theme::bone()).border_color(theme::mute()))
+                                .tooltip(|_, cx| cx.new(|_| widgets::Tip("Swap base and compare  ⌘⇧S")).into())
+                                .on_click(cx.listener(|this, _, _, cx| this.swap(cx)))
+                                .child("⇅"),
+                        ),
+                )
+                .child(div().h(px(1.)).bg(theme::line()))
+                // 2. Which view
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div().flex().items_center().child(micro("View")).child(div().flex_1()).child(
                                 div()
                                     .id("mode-help")
                                     .w(px(22.))
@@ -453,56 +491,57 @@ impl Kerf {
                                     }))
                                     .child(if nerd { "\u{ea74}" } else { "?" }),
                             ),
-                    )
-                    .child(self.view_switch(unrelated, cx))
-                    .when_some(self.mode_sentence(), |d, (text, warn)| {
-                        d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(text)).when_some(warn, |d, w| {
+                        )
+                        .child(self.view_switch(unrelated, cx))
+                        .when_some(self.mode_sentence(), |d, (text, warn)| {
+                            d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(text))
+                                .when_some(warn, |d, w| {
+                                    d.child(
+                                        div()
+                                            .flex()
+                                            .gap(px(6.))
+                                            .px(px(8.))
+                                            .py(px(6.))
+                                            .rounded(theme::RADIUS)
+                                            .bg(theme::mod_fg().opacity(0.08))
+                                            .border_l_2()
+                                            .border_color(theme::mod_fg())
+                                            .text_size(theme::TEXT_CONTROL)
+                                            .text_color(theme::mod_fg())
+                                            .child(div().flex_none().child("⚠"))
+                                            .child(div().flex_1().min_w_0().child(w)),
+                                    )
+                                })
+                        }),
+                )
+                // 3. Range facts
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .when_some(data.as_ref(), |d, data| {
+                            let mb = match data.cmp.merge_base {
+                                Some(o) => format!("Merge base {}", short_sha(o)),
+                                None => "No common ancestor".into(),
+                            };
                             d.child(
                                 div()
-                                    .flex()
-                                    .gap(px(6.))
-                                    .px(px(8.))
-                                    .py(px(6.))
-                                    .rounded(theme::RADIUS)
-                                    .bg(theme::mod_fg().opacity(0.08))
-                                    .border_l_2()
-                                    .border_color(theme::mod_fg())
                                     .text_size(theme::TEXT_CONTROL)
-                                    .text_color(theme::mod_fg())
-                                    .child(div().flex_none().child("⚠"))
-                                    .child(div().flex_1().min_w_0().child(w)),
+                                    .text_color(if unrelated { theme::mod_fg() } else { theme::mute() })
+                                    .child(mb),
                             )
                         })
-                    }),
-            )
-            // 3. Range facts
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .when_some(data.as_ref(), |d, data| {
-                        let mb = match data.cmp.merge_base {
-                            Some(o) => format!("Merge base {}", short_sha(o)),
-                            None => "No common ancestor".into(),
-                        };
-                        d.child(
-                            div()
-                                .text_size(theme::TEXT_CONTROL)
-                                .text_color(if unrelated { theme::mod_fg() } else { theme::mute() })
-                                .child(mb),
-                        )
-                    })
-                    .child(div().flex_1())
-                    .children(pills()),
-            )
-            .when_some(
-                match &self.range {
-                    RangeState::Error(e) => Some(e.clone()),
-                    _ => None,
-                },
-                |d, e| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::del_fg()).child(e)),
-            );
+                        .child(div().flex_1())
+                        .children(pills()),
+                )
+                .when_some(
+                    match &self.range {
+                        RangeState::Error(e) => Some(e.clone()),
+                        _ => None,
+                    },
+                    |d, e| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::del_fg()).child(e)),
+                );
 
         div()
             .flex_none()
@@ -566,10 +605,7 @@ impl Kerf {
         let (b, c) = (self.display_ref(b), self.display_ref(c));
         let data = self.range_data();
         if data.is_some_and(|d| d.cmp.unrelated()) {
-            return Some((
-                format!("{b} and {c} share no history — showing the full difference."),
-                None,
-            ));
+            return Some((format!("{b} and {c} share no history — showing the full difference."), None));
         }
         Some(match self.mode {
             RangeMode::PrMerge => (format!("Changes on {c} since it branched from {b}."), None),
@@ -578,7 +614,10 @@ impl Kerf {
                 (
                     format!("Everything that differs between {b} and {c} right now."),
                     (behind > 0).then(|| {
-                        format!("{behind} commit{} only on {b} will show as removals.", if behind == 1 { "" } else { "s" })
+                        format!(
+                            "{behind} commit{} only on {b} will show as removals.",
+                            if behind == 1 { "" } else { "s" }
+                        )
                     }),
                 )
             }
@@ -587,10 +626,8 @@ impl Kerf {
 
     /// Tab strip — tabs only. Tools for the active tab live in `render_list_toolbar`.
     fn render_tabs(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (files, commits) = self
-            .range_data()
-            .map(|d| (d.changes.len(), d.cmp.ahead.len() + d.cmp.behind.len()))
-            .unwrap_or((0, 0));
+        let (files, commits) =
+            self.range_data().map(|d| (d.changes.len(), d.cmp.ahead.len() + d.cmp.behind.len())).unwrap_or((0, 0));
         let tab = |this: &Kerf, t: Tab, label: &'static str, n: usize, cx: &mut Context<Kerf>| {
             let active = this.tab == t;
             div()
@@ -621,7 +658,9 @@ impl Kerf {
                         .text_color(if active { theme::body() } else { theme::mute() })
                         .child(widgets::thousands(n as u64)),
                 )
-                .when(active, |d| d.child(div().absolute().bottom_0().left(px(12.)).right(px(12.)).h(px(2.)).bg(theme::frost())))
+                .when(active, |d| {
+                    d.child(div().absolute().bottom_0().left(px(12.)).right(px(12.)).h(px(2.)).bg(theme::frost()))
+                })
         };
         div()
             .flex_none()
@@ -667,24 +706,17 @@ impl Kerf {
                         cx.notify();
                     }))
                     .child(div().flex_none().text_color(theme::mute()).child(if nerd { "\u{ea6d}" } else { "⌕" }))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .items_center()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .map(|d| {
-                                if !has_text && !filtering {
-                                    d.text_color(theme::mute()).child("Search files")
-                                } else {
-                                    d.text_color(theme::bone())
-                                        .child(self.filter.clone())
-                                        .when(filtering, |d| d.child(div().w(px(1.)).h(px(16.)).bg(theme::frost())))
-                                }
-                            }),
-                    )
+                    .child(div().flex_1().min_w_0().flex().items_center().overflow_hidden().whitespace_nowrap().map(
+                        |d| {
+                            if !has_text && !filtering {
+                                d.text_color(theme::mute()).child("Search files")
+                            } else {
+                                d.text_color(theme::bone())
+                                    .child(self.filter.clone())
+                                    .when(filtering, |d| d.child(div().w(px(1.)).h(px(16.)).bg(theme::frost())))
+                            }
+                        },
+                    ))
                     .when(has_text, |d| {
                         d.child(
                             div()
@@ -721,20 +753,18 @@ impl Kerf {
                     .bg(theme::crypt())
                     .border_1()
                     .border_color(theme::line_hi())
-                    .child(
-                        seg("tree", "Tree", self.tree, "Folders  t").on_click(cx.listener(|this, _, w, cx| {
-                            if !this.tree {
-                                w.dispatch_action(Box::new(super::ToggleTree), cx);
-                            }
-                        })),
-                    )
-                    .child(
-                        seg("flat", "List", !self.tree, "Flat list of paths  t").on_click(cx.listener(|this, _, w, cx| {
+                    .child(seg("tree", "Tree", self.tree, "Folders  t").on_click(cx.listener(|this, _, w, cx| {
+                        if !this.tree {
+                            w.dispatch_action(Box::new(super::ToggleTree), cx);
+                        }
+                    })))
+                    .child(seg("flat", "List", !self.tree, "Flat list of paths  t").on_click(cx.listener(
+                        |this, _, w, cx| {
                             if this.tree {
                                 w.dispatch_action(Box::new(super::ToggleTree), cx);
                             }
-                        })),
-                    ),
+                        },
+                    ))),
             )
     }
 
@@ -746,12 +776,9 @@ impl Kerf {
                 .flex()
                 .flex_col()
                 .children((0..8).map(|i| {
-                    div()
-                        .h(theme::ROW_LIST)
-                        .mx(px(12.))
-                        .flex()
-                        .items_center()
-                        .child(div().h(px(8.)).w(px(80. + (i * 37 % 120) as f32)).bg(theme::ash()).rounded(theme::RADIUS))
+                    div().h(theme::ROW_LIST).mx(px(12.)).flex().items_center().child(
+                        div().h(px(8.)).w(px(80. + (i * 37 % 120) as f32)).bg(theme::ash()).rounded(theme::RADIUS),
+                    )
                 }))
                 .into_any_element();
         }
@@ -805,9 +832,8 @@ impl Kerf {
             .border_color(if selected { theme::frost() } else { gpui::transparent_black() })
             .when(selected, |d| d.bg(theme::slate()))
             .when(row.selectable(), |d| {
-                d.cursor_pointer()
-                    .when(!selected, |d| d.hover(|s| s.bg(theme::ash())))
-                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _, cx| {
+                d.cursor_pointer().when(!selected, |d| d.hover(|s| s.bg(theme::ash()))).on_click(cx.listener(
+                    move |this, ev: &gpui::ClickEvent, _, cx| {
                         // Double-click keeps the file in its own (pinned) tab.
                         if ev.click_count() >= 2 {
                             this.pin_next = true;
@@ -818,7 +844,8 @@ impl Kerf {
                         }
                         this.click_row(ix, cx);
                         this.pin_next = false;
-                    }))
+                    },
+                ))
             });
         let indent = |depth: usize| px(6. + depth as f32 * 14.);
         match row {
@@ -857,7 +884,9 @@ impl Kerf {
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .child(format!("{name}/")),
                 )
-                .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(files.to_string()))
+                .child(
+                    div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(files.to_string()),
+                )
                 .into_any_element(),
             ListRow::File { change, depth } => {
                 let Some(data) = self.range_data() else { return base.into_any_element() };
@@ -881,34 +910,48 @@ impl Kerf {
                     theme::bone()
                 };
                 // Flat list: dim folder part, bright file name. Tree: file name only.
-                let label = div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .child(if in_tree || dir.is_empty() {
-                        StyledText::new(SharedString::from(file.clone()))
-                            .with_highlights([(0..file.len(), HighlightStyle { color: Some(name_color), ..Default::default() })])
+                let label = div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(
+                    if in_tree || dir.is_empty() {
+                        StyledText::new(SharedString::from(file.clone())).with_highlights([(
+                            0..file.len(),
+                            HighlightStyle { color: Some(name_color), ..Default::default() },
+                        )])
                     } else {
                         let text = format!("{dir}{file}");
                         StyledText::new(SharedString::from(text.clone())).with_highlights([
                             (0..dir.len(), HighlightStyle { color: Some(theme::mute()), ..Default::default() }),
                             (dir.len()..text.len(), HighlightStyle { color: Some(name_color), ..Default::default() }),
                         ])
-                    });
+                    },
+                );
                 let path = c.path.clone();
                 base.pl(indent(*depth))
                     .tooltip(move |_, cx| cx.new(|_| PathTip(path.clone())).into())
                     .child(status_glyph(c.status))
                     .child(label)
                     .when_some(renamed, |d, r| {
-                        d.child(div().flex_none().max_w(px(140.)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child(r))
+                        d.child(
+                            div()
+                                .flex_none()
+                                .max_w(px(140.))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::frost())
+                                .child(r),
+                        )
                     })
-                    .when(c.binary && !compact, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("BIN")))
-                    .when(c.is_generated() && !compact, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("GEN")))
+                    .when(c.binary && !compact, |d| {
+                        d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("BIN"))
+                    })
+                    .when(c.is_generated() && !compact, |d| {
+                        d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child("GEN"))
+                    })
                     .child(counts(c.additions.map(u64::from), c.deletions.map(u64::from)))
-                    .when(viewed, |d| d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("✓")))
+                    .when(viewed, |d| {
+                        d.child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("✓"))
+                    })
                     .into_any_element()
             }
             ListRow::Group { group, count, open } => base
@@ -921,10 +964,14 @@ impl Kerf {
                     Group::Behind => "Behind · In Base, Not Compare",
                 })
                 .child(div().flex_1())
-                .child(div().text_color(match group {
-                    Group::Ahead => theme::add_fg(),
-                    Group::Behind => theme::mod_fg(),
-                }).child(count.to_string()))
+                .child(
+                    div()
+                        .text_color(match group {
+                            Group::Ahead => theme::add_fg(),
+                            Group::Behind => theme::mod_fg(),
+                        })
+                        .child(count.to_string()),
+                )
                 .into_any_element(),
             ListRow::Commit { group, idx } => {
                 let Some(c) = self.commit(*group, *idx) else { return base.into_any_element() };
@@ -934,35 +981,67 @@ impl Kerf {
                 let is_compare = self.compare.as_deref().is_some_and(|b| b.len() >= 7 && sha.starts_with(b));
                 base.pl(px(10.))
                     .child(widgets::chevron(open, self.nerd()))
-                    .child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::syn_type()).child(c.short()))
-                    .when(c.is_merge() && !compact, |d| d.child(div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE")))
-                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c.summary.clone()))
+                    .child(
+                        div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::syn_type()).child(c.short()),
+                    )
+                    .when(c.is_merge() && !compact, |d| {
+                        d.child(
+                            div().flex_none().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("MERGE"),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(c.summary.clone()),
+                    )
                     .when(is_base, |d| d.child(tag_badge("Base")))
                     .when(is_compare, |d| d.child(tag_badge("Compare")))
                     .when(selected, |d| {
-                        d.child(
-                            seg(format!("set-base-{ix}"), "Base", false, "Use this commit as base  b").on_click(cx.listener(|_this, _, w, cx| {
+                        d.child(seg(format!("set-base-{ix}"), "Base", false, "Use this commit as base  b").on_click(
+                            cx.listener(|_this, _, w, cx| {
                                 cx.stop_propagation();
                                 w.dispatch_action(Box::new(super::SetBase), cx);
-                            })),
-                        )
+                            }),
+                        ))
                         .child(
-                            seg(format!("set-compare-{ix}"), "Compare", false, "Use this commit as compare  c").on_click(cx.listener(|_this, _, w, cx| {
-                                cx.stop_propagation();
-                                w.dispatch_action(Box::new(super::SetCompare), cx);
-                            })),
+                            seg(format!("set-compare-{ix}"), "Compare", false, "Use this commit as compare  c")
+                                .on_click(cx.listener(|_this, _, w, cx| {
+                                    cx.stop_propagation();
+                                    w.dispatch_action(Box::new(super::SetCompare), cx);
+                                })),
                         )
                     })
-                    .when(!selected && !compact, |d| d.child(div().flex_none().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(age(c.time))))
+                    .when(!selected && !compact, |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::mute())
+                                .child(age(c.time)),
+                        )
+                    })
                     .into_any_element()
             }
             ListRow::CommitFile { change } => {
-                let Some(c) = self.expanded.as_ref().and_then(|e| e.changes.as_ref()).and_then(|ch| ch.get(*change)) else {
+                let Some(c) = self.expanded.as_ref().and_then(|e| e.changes.as_ref()).and_then(|ch| ch.get(*change))
+                else {
                     return base.into_any_element();
                 };
                 base.pl(px(34.))
                     .child(status_glyph(c.status))
-                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(c.path.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(c.path.clone()),
+                    )
                     .child(counts(c.additions.map(u64::from), c.deletions.map(u64::from)))
                     .into_any_element()
             }

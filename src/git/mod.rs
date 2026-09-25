@@ -24,12 +24,8 @@ impl Repo {
     /// Opens the repository containing `path` (walks up to find the root).
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let repo = Repository::discover(path)
-            .map_err(|_| anyhow!("Not a Git repository: {}", path.display()))?;
-        let root = repo
-            .workdir()
-            .unwrap_or_else(|| repo.path())
-            .to_path_buf();
+        let repo = Repository::discover(path).map_err(|_| anyhow!("Not a Git repository: {}", path.display()))?;
+        let root = repo.workdir().unwrap_or_else(|| repo.path()).to_path_buf();
         let root = root.canonicalize().unwrap_or(root);
         Ok(Self { repo, root })
     }
@@ -84,11 +80,7 @@ impl Repo {
         self.repo.tag_foreach(|oid, full| {
             let full = String::from_utf8_lossy(full);
             let name = full.trim_start_matches("refs/tags/").to_string();
-            if let Ok(commit) = self
-                .repo
-                .find_object(oid, None)
-                .and_then(|o| o.peel_to_commit())
-            {
+            if let Ok(commit) = self.repo.find_object(oid, None).and_then(|o| o.peel_to_commit()) {
                 out.push(RefInfo {
                     name,
                     kind: RefKind::Tag,
@@ -101,10 +93,7 @@ impl Repo {
             true
         })?;
         out.sort_by(|a, b| {
-            kind_rank(a.kind)
-                .cmp(&kind_rank(b.kind))
-                .then(b.time.cmp(&a.time))
-                .then(a.name.cmp(&b.name))
+            kind_rank(a.kind).cmp(&kind_rank(b.kind)).then(b.time.cmp(&a.time)).then(a.name.cmp(&b.name))
         });
         Ok(out)
     }
@@ -133,10 +122,7 @@ impl Repo {
 
     /// Resolves a branch, tag, remote branch or SHA to a commit id.
     pub fn resolve(&self, name: &str) -> Result<Oid> {
-        let obj = self
-            .repo
-            .revparse_single(name)
-            .with_context(|| format!("Unknown ref: {name}"))?;
+        let obj = self.repo.revparse_single(name).with_context(|| format!("Unknown ref: {name}"))?;
         Ok(obj.peel_to_commit().with_context(|| format!("Not a commit: {name}"))?.id())
     }
 
@@ -220,9 +206,7 @@ impl Repo {
         let new_tree = self.repo.find_tree(src.new)?;
         let mut opts = git2::DiffOptions::new();
         opts.context_lines(0).include_typechange(true);
-        let mut diff = self
-            .repo
-            .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+        let mut diff = self.repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
         let mut find = DiffFindOptions::new();
         find.renames(true).copies(false).rename_limit(2000);
         diff.find_similar(Some(&mut find))?;
@@ -269,9 +253,7 @@ impl Repo {
 
             out.push(Change {
                 status,
-                old_path: matches!(status, ChangeStatus::Renamed | ChangeStatus::Copied)
-                    .then_some(old_path)
-                    .flatten(),
+                old_path: matches!(status, ChangeStatus::Renamed | ChangeStatus::Copied).then_some(old_path).flatten(),
                 path,
                 old_oid,
                 new_oid,
@@ -289,11 +271,7 @@ impl Repo {
     }
 
     fn blob_size(&self, oid: Oid) -> u64 {
-        self.repo
-            .odb()
-            .and_then(|odb| odb.read_header(oid))
-            .map(|(size, _)| size as u64)
-            .unwrap_or(0)
+        self.repo.odb().and_then(|odb| odb.read_header(oid)).map(|(size, _)| size as u64).unwrap_or(0)
     }
 
     /// Full line-level diff of one change.
@@ -392,92 +370,100 @@ fn fill_text_diff(
     new_path: &str,
     opts: DiffOptions,
 ) -> Result<()> {
-        fd.non_utf8 = std::str::from_utf8(old_bytes).is_err() || std::str::from_utf8(new_bytes).is_err();
-        fd.total_lines = bytecount_lines(if new_bytes.is_empty() { old_bytes } else { new_bytes });
+    fd.non_utf8 = std::str::from_utf8(old_bytes).is_err() || std::str::from_utf8(new_bytes).is_err();
+    fd.total_lines = bytecount_lines(if new_bytes.is_empty() { old_bytes } else { new_bytes });
 
-        let mut gopts = git2::DiffOptions::new();
-        gopts
-            .context_lines(opts.context_lines)
-            .ignore_whitespace(opts.ignore_whitespace)
-            .force_text(true);
-        let patch = Patch::from_buffers(
-            old_bytes,
-            Some(Path::new(old_path)),
-            new_bytes,
-            Some(Path::new(new_path)),
-            Some(&mut gopts),
-        )?;
+    let mut gopts = git2::DiffOptions::new();
+    gopts.context_lines(opts.context_lines).ignore_whitespace(opts.ignore_whitespace).force_text(true);
+    let patch = Patch::from_buffers(
+        old_bytes,
+        Some(Path::new(old_path)),
+        new_bytes,
+        Some(Path::new(new_path)),
+        Some(&mut gopts),
+    )?;
 
-        let mut text = String::with_capacity(old_bytes.len().max(new_bytes.len()));
-        for h in 0..patch.num_hunks() {
-            let (hunk, n) = patch.hunk(h)?;
-            let first_line = fd.lines.len();
-            for l in 0..n {
-                let line = patch.line_in_hunk(h, l)?;
-                let kind = match line.origin() {
-                    ' ' => LineKind::Context,
-                    '+' => LineKind::Added,
-                    '-' => LineKind::Removed,
-                    // "\ No newline at end of file" markers (libgit2 EOFNL origins):
-                    // '>' old lacks a final LF, '<' new lacks it, '=' both lack it.
-                    '>' => {
-                        fd.old_no_newline = true;
-                        continue;
-                    }
-                    '<' => {
-                        fd.new_no_newline = true;
-                        continue;
-                    }
-                    '=' => {
-                        fd.old_no_newline = true;
-                        fd.new_no_newline = true;
-                        continue;
-                    }
-                    _ => continue,
-                };
-                let content = String::from_utf8_lossy(line.content());
-                let content = content.trim_end_matches('\n').trim_end_matches('\r');
-                let start = text.len();
-                text.push_str(content);
-                fd.lines.push(DiffLine {
-                    kind,
-                    old_no: line.old_lineno(),
-                    new_no: line.new_lineno(),
-                    range: start..text.len(),
-                });
-            }
-            let header = String::from_utf8_lossy(hunk.header()).to_string();
-            fd.hunks.push(Hunk {
-                old_start: hunk.old_start(),
-                old_lines: hunk.old_lines(),
-                new_start: hunk.new_start(),
-                new_lines: hunk.new_lines(),
-                context: hunk_context(&header),
-                first_line,
-                line_count: fd.lines.len() - first_line,
+    let mut text = String::with_capacity(old_bytes.len().max(new_bytes.len()));
+    for h in 0..patch.num_hunks() {
+        let (hunk, n) = patch.hunk(h)?;
+        let first_line = fd.lines.len();
+        for l in 0..n {
+            let line = patch.line_in_hunk(h, l)?;
+            let kind = match line.origin() {
+                ' ' => LineKind::Context,
+                '+' => LineKind::Added,
+                '-' => LineKind::Removed,
+                // "\ No newline at end of file" markers (libgit2 EOFNL origins):
+                // '>' old lacks a final LF, '<' new lacks it, '=' both lack it.
+                '>' => {
+                    fd.old_no_newline = true;
+                    continue;
+                }
+                '<' => {
+                    fd.new_no_newline = true;
+                    continue;
+                }
+                '=' => {
+                    fd.old_no_newline = true;
+                    fd.new_no_newline = true;
+                    continue;
+                }
+                _ => continue,
+            };
+            let content = String::from_utf8_lossy(line.content());
+            let content = content.trim_end_matches('\n').trim_end_matches('\r');
+            let start = text.len();
+            text.push_str(content);
+            fd.lines.push(DiffLine {
+                kind,
+                old_no: line.old_lineno(),
+                new_no: line.new_lineno(),
+                range: start..text.len(),
             });
         }
-        if fd.lines.is_empty() && !(old_bytes.is_empty() && new_bytes.is_empty()) {
-            // Nothing changed (or only ignored whitespace): show the whole file as context.
-            fd.unchanged = Some(if old_bytes == new_bytes { Unchanged::Identical } else { Unchanged::WhitespaceOnly });
-            let src = String::from_utf8_lossy(new_bytes);
-            for (i, l) in src.lines().enumerate() {
-                let start = text.len();
-                text.push_str(l.trim_end_matches('\r'));
-                let n = i as u32 + 1;
-                fd.lines.push(DiffLine { kind: LineKind::Context, old_no: Some(n), new_no: Some(n), range: start..text.len() });
-            }
-            let n = fd.lines.len() as u32;
-            fd.hunks.push(Hunk { old_start: 1, old_lines: n, new_start: 1, new_lines: n, context: String::new(), first_line: 0, line_count: n as usize });
+        let header = String::from_utf8_lossy(hunk.header()).to_string();
+        fd.hunks.push(Hunk {
+            old_start: hunk.old_start(),
+            old_lines: hunk.old_lines(),
+            new_start: hunk.new_start(),
+            new_lines: hunk.new_lines(),
+            context: hunk_context(&header),
+            first_line,
+            line_count: fd.lines.len() - first_line,
+        });
+    }
+    if fd.lines.is_empty() && !(old_bytes.is_empty() && new_bytes.is_empty()) {
+        // Nothing changed (or only ignored whitespace): show the whole file as context.
+        fd.unchanged = Some(if old_bytes == new_bytes { Unchanged::Identical } else { Unchanged::WhitespaceOnly });
+        let src = String::from_utf8_lossy(new_bytes);
+        for (i, l) in src.lines().enumerate() {
+            let start = text.len();
+            text.push_str(l.trim_end_matches('\r'));
+            let n = i as u32 + 1;
+            fd.lines.push(DiffLine {
+                kind: LineKind::Context,
+                old_no: Some(n),
+                new_no: Some(n),
+                range: start..text.len(),
+            });
         }
-        fd.text = Arc::from(text);
-        Ok(())
+        let n = fd.lines.len() as u32;
+        fd.hunks.push(Hunk {
+            old_start: 1,
+            old_lines: n,
+            new_start: 1,
+            new_lines: n,
+            context: String::new(),
+            first_line: 0,
+            line_count: n as usize,
+        });
+    }
+    fd.text = Arc::from(text);
+    Ok(())
 }
 
 fn summary_of(c: &git2::Commit<'_>) -> String {
-    c.summary_bytes()
-        .map(|b| String::from_utf8_lossy(b).into_owned())
-        .unwrap_or_default()
+    c.summary_bytes().map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default()
 }
 
 fn kind_rank(k: RefKind) -> u8 {
@@ -500,12 +486,7 @@ fn similarity_of(delta: &git2::DiffDelta<'_>) -> u16 {
 
 fn hunk_context(header: &str) -> String {
     // "@@ -1,3 +1,4 @@ fn main() {\n" → "fn main() {"
-    header
-        .trim_end()
-        .splitn(3, "@@")
-        .nth(2)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    header.trim_end().splitn(3, "@@").nth(2).map(|s| s.trim().to_string()).unwrap_or_default()
 }
 
 fn bytecount_lines(b: &[u8]) -> usize {
@@ -513,7 +494,11 @@ fn bytecount_lines(b: &[u8]) -> usize {
         return 0;
     }
     let n = b.iter().filter(|&&c| c == b'\n').count();
-    if b.last() == Some(&b'\n') { n } else { n + 1 }
+    if b.last() == Some(&b'\n') {
+        n
+    } else {
+        n + 1
+    }
 }
 
 /// Validates both refs exist before a comparison is attempted; returns a user-facing error.

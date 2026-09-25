@@ -133,11 +133,8 @@ impl Kerf {
     pub fn drag_scroll_to(&mut self, y: f32, cx: &mut Context<Self>) {
         let Some(drag) = self.scroll_drag else { return };
         let m = self.bar_metrics(drag.bar);
-        let offset = if drag.map {
-            m.offset_for_map(y - m.track_top)
-        } else {
-            m.offset_for(y - m.track_top - drag.grab)
-        };
+        let offset =
+            if drag.map { m.offset_for_map(y - m.track_top) } else { m.offset_for(y - m.track_top - drag.grab) };
         let (h, _, _) = self.bar_handle(drag.bar);
         let base = &h.0.borrow().base_handle;
         let x = base.offset().x;

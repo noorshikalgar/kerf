@@ -10,12 +10,11 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, SharedStri
 const MAX_RECENTS: usize = 8;
 
 fn icon(nerd: bool, glyph: &'static str) -> Div {
-    div()
-        .w(px(20.))
-        .flex_none()
-        .text_size(theme::TEXT_CODE)
-        .text_color(theme::mute())
-        .child(if nerd { glyph } else { "›" })
+    div().w(px(20.)).flex_none().text_size(theme::TEXT_CODE).text_color(theme::mute()).child(if nerd {
+        glyph
+    } else {
+        "›"
+    })
 }
 
 /// A start action: icon, label, one-line explanation.
@@ -37,7 +36,13 @@ fn action(id: &'static str, nerd: bool, glyph: &'static str, label: &'static str
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .child(div().text_size(theme::TEXT_LIST).font_weight(FontWeight::MEDIUM).text_color(theme::bone()).child(label))
+                .child(
+                    div()
+                        .text_size(theme::TEXT_LIST)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::bone())
+                        .child(label),
+                )
                 .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(sub)),
         )
 }
@@ -67,11 +72,17 @@ impl Kerf {
             )
             .child(micro("Learn").mt(px(20.)).mb(px(6.)))
             .child(
-                action("learn-keys", nerd, "\u{ea65}", "Keyboard Shortcuts", "Everything Kerf can do from the keyboard")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.shortcuts_open = true;
-                        cx.notify();
-                    })),
+                action(
+                    "learn-keys",
+                    nerd,
+                    "\u{ea65}",
+                    "Keyboard Shortcuts",
+                    "Everything Kerf can do from the keyboard",
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.shortcuts_open = true;
+                    cx.notify();
+                })),
             )
             .child(
                 action("learn-views", nerd, "\u{ea74}", "PR Merge vs Compare View", "Two ways to compare branches")
@@ -89,7 +100,13 @@ impl Kerf {
             .gap(px(2.))
             .child(micro("Recent").mb(px(6.)))
             .when(recents.is_empty(), |d| {
-                d.child(div().py(px(8.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("Repositories you open show up here."))
+                d.child(
+                    div()
+                        .py(px(8.))
+                        .text_size(theme::TEXT_CONTROL)
+                        .text_color(theme::mute())
+                        .child("Repositories you open show up here."),
+                )
             })
             .children(recents.into_iter().enumerate().map(|(i, p)| {
                 let exists = p.exists();
@@ -179,12 +196,13 @@ impl Kerf {
                             .flex_col()
                             .gap(px(6.))
                             .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(16.))
-                                    .child(super::widgets::app_icon(56.))
-                                    .child(div().text_size(px(34.)).font_weight(FontWeight::BOLD).text_color(theme::bone()).child("kerf")),
+                                div().flex().items_center().gap(px(16.)).child(super::widgets::app_icon(56.)).child(
+                                    div()
+                                        .text_size(px(34.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(theme::bone())
+                                        .child("kerf"),
+                                ),
                             )
                             .child(
                                 div()
@@ -253,7 +271,14 @@ impl Kerf {
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(micro("Recent").px(px(12.)).pt(px(6.)).pb(px(4.)))
             .when(recents.is_empty(), |d| {
-                d.child(div().px(px(12.)).py(px(6.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("No recent repositories"))
+                d.child(
+                    div()
+                        .px(px(12.))
+                        .py(px(6.))
+                        .text_size(theme::TEXT_CONTROL)
+                        .text_color(theme::mute())
+                        .child("No recent repositories"),
+                )
             })
             .children(recents.into_iter().enumerate().map(|(i, p)| {
                 let exists = p.exists();
@@ -287,7 +312,9 @@ impl Kerf {
                                     .child(path),
                             ),
                     )
-                    .when(is_current, |d| d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Open")))
+                    .when(is_current, |d| {
+                        d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Open"))
+                    })
                     .when(exists && !is_current, |d| {
                         d.on_click(cx.listener(move |this, _, _, cx| {
                             close_menu(this);

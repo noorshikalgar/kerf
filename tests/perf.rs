@@ -28,7 +28,13 @@ fn hundred_k_line_rust_file() {
     git(p, &["commit", "-qm", "a"]);
     git(p, &["checkout", "-qb", "b"]);
     let new: String = (0..100_000)
-        .map(|i| if i % 3 == 0 { format!("fn f{i}(x: u64) -> u64 {{ x * {i} }} // line {i}\n") } else { format!("fn f{i}(x: u32) -> u32 {{ x + {i} }} // line {i}\n") })
+        .map(|i| {
+            if i % 3 == 0 {
+                format!("fn f{i}(x: u64) -> u64 {{ x * {i} }} // line {i}\n")
+            } else {
+                format!("fn f{i}(x: u32) -> u32 {{ x + {i} }} // line {i}\n")
+            }
+        })
         .collect();
     std::fs::write(p.join("big.rs"), &new).unwrap();
     git(p, &["commit", "-qam", "b"]);
@@ -53,4 +59,28 @@ fn hundred_k_line_rust_file() {
     let t = Instant::now();
     let hl = kerf::highlight::highlight(&fd);
     println!("highlight: {:?} (some={})", t.elapsed(), hl.is_some());
+}
+
+#[test]
+#[ignore]
+fn live_diff_alignment_and_wrap_at_scale() {
+    // 50k-line texts with a change every 7th line: the live editor's background path.
+    let old: Vec<String> = (0..50_000).map(|i| format!("line {i} of the document")).collect();
+    let new: Vec<String> =
+        old.iter().enumerate().map(|(i, l)| if i % 7 == 0 { format!("{l} (edited)") } else { l.clone() }).collect();
+    let t = Instant::now();
+    let a = kerf::align::align_within(&old, &new, false, std::time::Duration::from_secs(5));
+    println!("align 50k: {:?} ({} rows, +{} −{})", t.elapsed(), a.rows(), a.additions, a.deletions);
+    assert_eq!(a.left.len(), a.right.len());
+    // Exact, not a deadline fallback: one edited line in every 7.
+    assert_eq!((a.additions, a.deletions), (7143, 7143));
+
+    // Soft-wrap layout for a 100k-row diff at 80 columns.
+    let text: String = (0..100_000).map(|i| format!("{} {}\n", "word ".repeat(i % 40), i)).collect();
+    let fd = kerf::git::diff_buffers(b"", text.as_bytes(), "a", "b", DiffOptions { force: true, ..Default::default() })
+        .unwrap();
+    let rows = diff::build(&fd, Layout::Unified);
+    let t = Instant::now();
+    let w = diff::wrap_rows(&fd, &rows, 80);
+    println!("wrap 100k rows: {:?} ({} visual rows)", t.elapsed(), w.map.len());
 }

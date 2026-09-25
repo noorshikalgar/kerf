@@ -231,7 +231,10 @@ pub enum DiffBody {
     /// Over the size limit and not forced.
     TooLarge,
     /// Submodule pointer moved.
-    Submodule { old: Option<Oid>, new: Option<Oid> },
+    Submodule {
+        old: Option<Oid>,
+        new: Option<Oid>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -285,11 +288,6 @@ pub struct DiffOptions {
 
 impl Default for DiffOptions {
     fn default() -> Self {
-        Self {
-            ignore_whitespace: false,
-            context_lines: 3,
-            max_bytes: 20 * 1024 * 1024,
-            force: false,
-        }
+        Self { ignore_whitespace: false, context_lines: 3, max_bytes: 20 * 1024 * 1024, force: false }
     }
 }

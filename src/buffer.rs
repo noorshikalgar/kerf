@@ -288,6 +288,10 @@ impl Buffer {
 
     /// Types or pastes `text` at the caret, replacing any selection. Handles `\n`, `\r\n`.
     pub fn insert(&mut self, text: &str) {
+        // Nothing to insert and nothing to replace: no edit, no empty undo step.
+        if text.is_empty() && self.selection().is_none() {
+            return;
+        }
         self.checkpoint();
         self.delete_selection_raw();
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -561,7 +565,11 @@ impl Buffer {
 fn split_lines(text: &str) -> Vec<String> {
     let text = text.replace("\r\n", "\n");
     let v: Vec<String> = text.split('\n').map(str::to_string).collect();
-    if v.is_empty() { vec![String::new()] } else { v }
+    if v.is_empty() {
+        vec![String::new()]
+    } else {
+        v
+    }
 }
 
 /// Display column of `col` (chars) with tabs expanded to `tab` spaces.
@@ -788,6 +796,92 @@ mod tests {
         b.outdent(4);
         assert_eq!(b.text(), "x\ny");
         assert_eq!(at(&b), (1, 1));
+    }
+
+    /// Tiny deterministic PRNG (no extra dependency).
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    fn caret_offset(b: &Buffer) -> usize {
+        let c = b.caret();
+        b.lines()[..c.row].iter().map(|l| l.chars().count() + 1).sum::<usize>() + c.col
+    }
+
+    /// Random edits against a plain `Vec<char>` model: text and caret must always agree,
+    /// and undoing everything must restore the original.
+    #[test]
+    fn property_random_edits_match_a_string_model() {
+        let pieces = ["a", "é", "xy", "\n", "\t", " ", "é\nz", "", "日本"];
+        for seed in 1..400u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            let start: String = (0..rng.below(4)).map(|_| pieces[rng.below(pieces.len())]).collect();
+            let mut b = Buffer::new(&start);
+            let mut model: Vec<char> = start.chars().collect();
+            let mut caret = 0usize;
+            let mut edits = 0;
+            for _ in 0..60 {
+                match rng.below(6) {
+                    0 | 1 => {
+                        let t = pieces[rng.below(pieces.len())];
+                        b.insert(t);
+                        for (i, ch) in t.chars().enumerate() {
+                            model.insert(caret + i, ch);
+                        }
+                        caret += t.chars().count();
+                        if !t.is_empty() {
+                            edits += 1;
+                        }
+                    }
+                    2 => {
+                        let before = b.text();
+                        b.backspace(false);
+                        if caret > 0 {
+                            model.remove(caret - 1);
+                            caret -= 1;
+                        }
+                        if b.text() != before {
+                            edits += 1;
+                        }
+                    }
+                    3 => {
+                        let before = b.text();
+                        b.delete_forward(false);
+                        if caret < model.len() {
+                            model.remove(caret);
+                        }
+                        if b.text() != before {
+                            edits += 1;
+                        }
+                    }
+                    4 => {
+                        b.move_caret(Move::Left, false);
+                        caret = caret.saturating_sub(1);
+                    }
+                    _ => {
+                        b.move_caret(Move::Right, false);
+                        caret = (caret + 1).min(model.len());
+                    }
+                }
+                assert_eq!(b.text(), model.iter().collect::<String>(), "seed {seed}");
+                assert_eq!(caret_offset(&b), caret, "seed {seed}: caret");
+            }
+            let mut undos = 0;
+            while b.undo() {
+                undos += 1;
+            }
+            assert_eq!(undos, edits, "seed {seed}: one undo step per real edit");
+            assert_eq!(b.text(), start.replace("\r\n", "\n"), "seed {seed}: undo all");
+        }
     }
 
     #[test]

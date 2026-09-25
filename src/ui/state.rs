@@ -37,13 +37,22 @@ fn yes() -> bool {
     true
 }
 
+/// `KERF_STATE_DIR` overrides the location (tests use a temp dir so they never touch the
+/// user's real state).
 fn file() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("KERF_STATE_DIR") {
+        return Some(PathBuf::from(dir).join("state.json"));
+    }
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join("Library/Application Support/kerf/state.json"))
 }
 
 impl Persisted {
     pub fn load() -> Self {
+        // Unit tests always start from defaults: no shared state between parallel tests.
+        if cfg!(test) {
+            return Self { tree: true, ..Default::default() };
+        }
         file()
             .and_then(|f| std::fs::read(f).ok())
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -51,6 +60,9 @@ impl Persisted {
     }
 
     pub fn save(&self) {
+        if cfg!(test) {
+            return;
+        }
         let Some(f) = file() else { return };
         if let Some(dir) = f.parent() {
             let _ = std::fs::create_dir_all(dir);

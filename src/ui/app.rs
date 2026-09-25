@@ -5,16 +5,15 @@ use super::state::Persisted;
 use super::*;
 use crate::diff::{self, Layout, Rows};
 use crate::git::{
-    short_sha, Change, ChangeStatus, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff,
-    RangeMode, RangeSpec, RefInfo, RefKind, Repo,
+    short_sha, Change, ChangeStatus, CommitInfo, Comparison, DiffBody, DiffOptions, DiffSource, FileDiff, RangeMode,
+    RangeSpec, RefInfo, RefKind, Repo,
 };
 use crate::highlight::{self, LineSpans};
 use crate::theme;
 use git2::Oid;
 use gpui::{
-    div, prelude::*, px, ClipboardItem, Context, FocusHandle, KeyDownEvent, MouseButton,
-    MouseMoveEvent, MouseUpEvent, PathPromptOptions, ScrollStrategy, SharedString, Task,
-    UniformListScrollHandle, Window,
+    div, prelude::*, px, ClipboardItem, Context, FocusHandle, KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent,
+    PathPromptOptions, ScrollStrategy, SharedString, Task, UniformListScrollHandle, Window,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -124,7 +123,11 @@ pub struct ScratchSide {
 impl ScratchSide {
     pub fn lines(&self) -> usize {
         let n = self.text.iter().filter(|&&b| b == b'\n').count();
-        if self.text.last().is_some_and(|&b| b != b'\n') { n + 1 } else { n }
+        if self.text.last().is_some_and(|&b| b != b'\n') {
+            n + 1
+        } else {
+            n
+        }
     }
     fn short_name(&self) -> String {
         self.label.rsplit('/').next().unwrap_or(&self.label).to_string()
@@ -325,11 +328,7 @@ impl Kerf {
     pub fn new(launch: super::Launch, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let persisted = Persisted::load();
         let names = window.text_system().all_font_names();
-        let font = theme::FONT_CANDIDATES
-            .iter()
-            .find(|c| names.iter().any(|n| n == *c))
-            .copied()
-            .unwrap_or("Menlo");
+        let font = theme::FONT_CANDIDATES.iter().find(|c| names.iter().any(|n| n == *c)).copied().unwrap_or("Menlo");
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut this = Self {
@@ -531,8 +530,7 @@ impl Kerf {
     // ───────────────────────────── range ─────────────────────────────
 
     pub fn load_range(&mut self, cx: &mut Context<Self>) {
-        let (Some(path), Some(base), Some(compare)) =
-            (self.repo_path.clone(), self.base.clone(), self.compare.clone())
+        let (Some(path), Some(base), Some(compare)) = (self.repo_path.clone(), self.base.clone(), self.compare.clone())
         else {
             self.range = RangeState::Idle;
             self.rebuild_rows();
@@ -540,9 +538,7 @@ impl Kerf {
             return;
         };
         if let Some(p) = &self.repo_path {
-            self.persisted
-                .ranges
-                .insert(p.display().to_string(), (base.clone(), compare.clone()));
+            self.persisted.ranges.insert(p.display().to_string(), (base.clone(), compare.clone()));
             self.persisted.save();
         }
         self.range_gen += 1;
@@ -640,9 +636,7 @@ impl Kerf {
             Tab::Files => self.file_rows(),
             Tab::Commits => self.commit_rows(),
         };
-        self.selected = prev
-            .and_then(|id| self.rows.iter().position(|r| row_identity(r) == id))
-            .or(None);
+        self.selected = prev.and_then(|id| self.rows.iter().position(|r| row_identity(r) == id)).or(None);
     }
 
     fn file_rows(&self) -> Vec<ListRow> {
@@ -678,10 +672,9 @@ impl Kerf {
     fn commit_rows(&self) -> Vec<ListRow> {
         let Some(data) = self.range_data() else { return Vec::new() };
         let mut rows = Vec::new();
-        for (group, list, open) in [
-            (Group::Ahead, &data.cmp.ahead, self.ahead_open),
-            (Group::Behind, &data.cmp.behind, self.behind_open),
-        ] {
+        for (group, list, open) in
+            [(Group::Ahead, &data.cmp.ahead, self.ahead_open), (Group::Behind, &data.cmp.behind, self.behind_open)]
+        {
             rows.push(ListRow::Group { group, count: list.len(), open });
             if !open {
                 continue;
@@ -778,10 +771,7 @@ impl Kerf {
         self.expanded = Some(ExpandedCommit { oid, source: None, changes: None, error: None });
         self.rebuild_rows();
         let task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { Repo::open(&path)?.commit_changes(oid) })
-                .await;
+            let result = cx.background_executor().spawn(async move { Repo::open(&path)?.commit_changes(oid) }).await;
             this.update(cx, |this, cx| {
                 let Some(exp) = this.expanded.as_mut().filter(|e| e.oid == oid) else { return };
                 match result {
@@ -1166,7 +1156,15 @@ impl Kerf {
                 }
                 match result {
                     Ok((fd, rows, widest_row, widest_chars, gutter_digits)) => {
-                        let loaded = Arc::new(Loaded { target: target.clone(), fd, rows, hl: None, widest_row, widest_chars, gutter_digits });
+                        let loaded = Arc::new(Loaded {
+                            target: target.clone(),
+                            fd,
+                            rows,
+                            hl: None,
+                            widest_row,
+                            widest_chars,
+                            gutter_digits,
+                        });
                         this.diff = DiffState::Ready(loaded.clone());
                         if reset_scroll {
                             this.hscroll = 0.;
@@ -1357,7 +1355,9 @@ impl Kerf {
 
     /// Sets the selected commit (Commits tab) as base or compare.
     fn set_selected_commit(&mut self, which: Which, cx: &mut Context<Self>) {
-        let Some(ListRow::Commit { group, idx }) = self.selected.and_then(|i| self.rows.get(i)).cloned() else { return };
+        let Some(ListRow::Commit { group, idx }) = self.selected.and_then(|i| self.rows.get(i)).cloned() else {
+            return;
+        };
         let Some(c) = self.commit(group, idx).cloned() else { return };
         self.set_ref(which, c.oid.to_string(), cx);
         let label = if which == Which::Base { "Base" } else { "Compare" };
@@ -1480,11 +1480,9 @@ impl Kerf {
         let text = match self.selected.and_then(|i| self.rows.get(i)) {
             Some(ListRow::Commit { group, idx }) => self.commit(*group, *idx).map(|c| c.oid.to_string()),
             Some(ListRow::File { change, .. }) => self.range_data().map(|d| d.changes[*change].path.clone()),
-            Some(ListRow::CommitFile { change }) => self
-                .expanded
-                .as_ref()
-                .and_then(|e| e.changes.as_ref())
-                .map(|c| c[*change].path.clone()),
+            Some(ListRow::CommitFile { change }) => {
+                self.expanded.as_ref().and_then(|e| e.changes.as_ref()).map(|c| c[*change].path.clone())
+            }
             _ => None,
         };
         if let Some(t) = text {
@@ -1495,7 +1493,9 @@ impl Kerf {
 
     fn update_title(&self, window: &mut Window) {
         let title = match (&self.repo_path, &self.base, &self.compare) {
-            (Some(_), Some(b), Some(c)) => format!("{} — {} … {}", self.repo_name, self.display_ref(b), self.display_ref(c)),
+            (Some(_), Some(b), Some(c)) => {
+                format!("{} — {} … {}", self.repo_name, self.display_ref(b), self.display_ref(c))
+            }
             (Some(_), _, _) => self.repo_name.clone(),
             _ => "Kerf".into(),
         };
@@ -1506,7 +1506,8 @@ impl Kerf {
 impl Render for Kerf {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_title(window);
-        let editing_text = self.editors.values().any(|p| p.left.read(cx).is_focused(window) || p.right.read(cx).is_focused(window));
+        let editing_text =
+            self.editors.values().any(|p| p.left.read(cx).is_focused(window) || p.right.read(cx).is_focused(window));
         let context = if self.input == Input::None && !editing_text { "Kerf" } else { "KerfInput" };
         div()
             .id("kerf")
@@ -1770,9 +1771,7 @@ impl Render for Kerf {
 impl Kerf {
     pub fn showing_collapsed_generated(&self) -> bool {
         match &self.diff {
-            DiffState::Ready(l) => {
-                l.target.change.is_generated() && !self.shown_generated.contains(&l.target.key())
-            }
+            DiffState::Ready(l) => l.target.change.is_generated() && !self.shown_generated.contains(&l.target.key()),
             _ => false,
         }
     }
@@ -1996,10 +1995,8 @@ mod tests {
 
     #[test]
     fn tree_groups_by_directory() {
-        let changes: Vec<Change> = ["README.md", "src/a/x.rs", "src/a/y.rs", "src/b.rs", "tests/t.rs"]
-            .iter()
-            .map(|p| ch(p))
-            .collect();
+        let changes: Vec<Change> =
+            ["README.md", "src/a/x.rs", "src/a/y.rs", "src/b.rs", "tests/t.rs"].iter().map(|p| ch(p)).collect();
         let visible: Vec<usize> = (0..changes.len()).collect();
         let rows = tree_rows(&changes, &visible, &HashSet::new());
         assert_eq!(
@@ -2041,12 +2038,23 @@ mod tests {
         use crate::git::{CommitInfo, RefInfo, RefKind};
         use git2::Oid;
         let oid = |h: &str| Oid::from_str(&format!("{h:0<40}")).unwrap();
-        let r = |n: &str| RefInfo { name: n.into(), kind: RefKind::Local, target: oid("1"), summary: String::new(), time: 0, is_head: false };
-        let c = |h: &str, s: &str| CommitInfo { oid: oid(h), summary: s.into(), message: s.into(), author: "a".into(), time: 0, parent_count: 1 };
-        (
-            vec![r("main"), r("feature/login")],
-            vec![c("abc1234", "fix login bug"), c("def5678", "add readme")],
-        )
+        let r = |n: &str| RefInfo {
+            name: n.into(),
+            kind: RefKind::Local,
+            target: oid("1"),
+            summary: String::new(),
+            time: 0,
+            is_head: false,
+        };
+        let c = |h: &str, s: &str| CommitInfo {
+            oid: oid(h),
+            summary: s.into(),
+            message: s.into(),
+            author: "a".into(),
+            time: 0,
+            parent_count: 1,
+        };
+        (vec![r("main"), r("feature/login")], vec![c("abc1234", "fix login bug"), c("def5678", "add readme")])
     }
 
     #[test]

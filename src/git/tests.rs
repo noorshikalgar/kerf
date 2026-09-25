@@ -133,9 +133,7 @@ fn three_dot_shows_only_compare_changes() {
 fn two_dot_includes_base_side_changes() {
     let f = diverged();
     let r = f.repo();
-    let cmp = r
-        .compare(&RangeSpec { mode: RangeMode::Compare, ..spec("main", "feature") })
-        .unwrap();
+    let cmp = r.compare(&RangeSpec { mode: RangeMode::Compare, ..spec("main", "feature") }).unwrap();
     let paths: Vec<_> = r.changes(cmp.source).unwrap().into_iter().map(|c| c.path).collect();
     assert_eq!(paths, ["README.md", "src/lib.rs", "src/new.rs"]);
 }
@@ -278,9 +276,7 @@ fn ignore_whitespace_hides_reindent() {
     let changes = r.changes(r.compare(&spec("main", "ws")).unwrap().source).unwrap();
     let normal = r.file_diff(&changes[0], DiffOptions::default()).unwrap();
     assert_eq!(normal.additions(), 1);
-    let ws = r
-        .file_diff(&changes[0], DiffOptions { ignore_whitespace: true, ..Default::default() })
-        .unwrap();
+    let ws = r.file_diff(&changes[0], DiffOptions { ignore_whitespace: true, ..Default::default() }).unwrap();
     assert_eq!(ws.additions(), 0);
     // Still shows the file, flagged as whitespace-only.
     assert_eq!(ws.unchanged, Some(Unchanged::WhitespaceOnly));

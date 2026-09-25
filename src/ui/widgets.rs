@@ -6,10 +6,7 @@ use gpui::{div, prelude::*, px, Div, Hsla, SharedString, Stateful};
 
 /// Title Case section label: `Base`, `Repository`.
 pub fn micro(text: impl Into<SharedString>) -> Div {
-    div()
-        .text_size(theme::TEXT_MICRO)
-        .text_color(theme::mute())
-        .child(text.into())
+    div().text_size(theme::TEXT_MICRO).text_color(theme::mute()).child(text.into())
 }
 
 pub fn status_color(s: ChangeStatus) -> Hsla {
@@ -86,10 +83,8 @@ pub fn spinner() -> Div {
 
 /// "3d", "5h", "just now"
 pub fn age(ts: i64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(ts);
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(ts);
     let s = (now - ts).max(0);
     match s {
         0..=59 => "now".into(),
@@ -110,7 +105,11 @@ pub fn bytes(n: u64) -> String {
         v /= 1024.;
         u += 1;
     }
-    if u == 0 { format!("{n} B") } else { format!("{v:.1} {}", U[u]) }
+    if u == 0 {
+        format!("{n} B")
+    } else {
+        format!("{v:.1} {}", U[u])
+    }
 }
 
 /// Thousands separator.

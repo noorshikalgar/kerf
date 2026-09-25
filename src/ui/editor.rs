@@ -373,16 +373,21 @@ impl Editor {
                 .min_w(px(self.min_row_w))
                 .min_w_full()
                 .flex()
-                .child(div().w(px(gutter_w)).h_full().flex_none().bg(theme::abyss()).border_r_1().border_color(theme::line()))
+                .child(
+                    div()
+                        .w(px(gutter_w))
+                        .h_full()
+                        .flex_none()
+                        .bg(theme::abyss())
+                        .border_r_1()
+                        .border_color(theme::line()),
+                )
                 .child(div().flex_1().h_full().bg(theme::abyss()))
                 .into_any_element();
         };
         let kind = decor.map(|d| d.kind).unwrap_or(RowKind::Same);
-        let (tint, emph_bg) = if self.is_left {
-            (theme::del_bg(), theme::del_emph())
-        } else {
-            (theme::add_bg(), theme::add_emph())
-        };
+        let (tint, emph_bg) =
+            if self.is_left { (theme::del_bg(), theme::del_emph()) } else { (theme::add_bg(), theme::add_emph()) };
         let line = self.buffer.line(ix);
         let caret = self.buffer.caret();
         let is_caret_row = caret.row == ix;
@@ -392,7 +397,8 @@ impl Editor {
         // Word-level change emphasis (raw byte ranges → display byte ranges).
         if kind == RowKind::Changed {
             for r in decor.map(|d| d.emph.as_slice()).unwrap_or(&[]) {
-                let (a, b) = (line[..r.start.min(line.len())].chars().count(), line[..r.end.min(line.len())].chars().count());
+                let (a, b) =
+                    (line[..r.start.min(line.len())].chars().count(), line[..r.end.min(line.len())].chars().count());
                 let (a, b) = (byte(visual_col(line, a, TAB)), byte(visual_col(line, b, TAB)));
                 if b > a {
                     hl.push((a..b, HighlightStyle { background_color: Some(emph_bg), ..Default::default() }));
@@ -417,7 +423,10 @@ impl Editor {
             }
             let (a, b) = (byte(from), if to > display.chars().count() { text.len() } else { byte(to) });
             if b > a {
-                sel_hl.push((a..b, HighlightStyle { background_color: Some(theme::frost().opacity(0.25)), ..Default::default() }));
+                sel_hl.push((
+                    a..b,
+                    HighlightStyle { background_color: Some(theme::frost().opacity(0.25)), ..Default::default() },
+                ));
             }
         }
         let hl: Vec<_> = gpui::combine_highlights(hl, sel_hl).collect();
@@ -452,7 +461,13 @@ impl Editor {
                     .text_color(if is_caret_row && focused { theme::body() } else { theme::mute() })
                     .child((ix + 1).to_string()),
             )
-            .child(div().pl(px(8.)).pr(px(40.)).text_color(theme::bone()).child(StyledText::new(SharedString::from(text)).with_highlights(hl)))
+            .child(
+                div()
+                    .pl(px(8.))
+                    .pr(px(40.))
+                    .text_color(theme::bone())
+                    .child(StyledText::new(SharedString::from(text)).with_highlights(hl)),
+            )
             .when(is_caret_row && focused, |d| {
                 d.child(div().absolute().top(px(2.)).bottom(px(2.)).left(px(caret_x + 8.)).w(px(2.)).bg(theme::frost()))
             })

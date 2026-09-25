@@ -143,11 +143,7 @@ pub fn highlight(diff: &FileDiff) -> Option<Vec<LineSpans>> {
     Some(out)
 }
 
-fn spans_for_line(
-    len: usize,
-    ops: &[(usize, syntect::parsing::ScopeStackOp)],
-    stack: &mut ScopeStack,
-) -> LineSpans {
+fn spans_for_line(len: usize, ops: &[(usize, syntect::parsing::ScopeStackOp)], stack: &mut ScopeStack) -> LineSpans {
     let mut spans: LineSpans = Vec::new();
     let mut pos = 0;
     let push = |from: usize, to: usize, stack: &ScopeStack, spans: &mut LineSpans| {
@@ -192,7 +188,15 @@ mod tests {
             new_size: 0,
             total_lines: lines.len(),
             text: Arc::from(text),
-            hunks: vec![Hunk { old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, context: String::new(), first_line: 0, line_count: out.len() }],
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                context: String::new(),
+                first_line: 0,
+                line_count: out.len(),
+            }],
             lines: out,
             non_utf8: false,
             old_no_newline: false,
@@ -203,10 +207,7 @@ mod tests {
 
     #[test]
     fn rust_keywords_strings_comments() {
-        let d = one_hunk(
-            "src/main.rs",
-            &[(LineKind::Added, "fn main() { let s = \"hi\"; } // done")],
-        );
+        let d = one_hunk("src/main.rs", &[(LineKind::Added, "fn main() { let s = \"hi\"; } // done")]);
         let spans = highlight(&d).unwrap();
         let text = d.line_text(&d.lines[0]);
         let find = |syn: Syn| -> Vec<&str> {
@@ -225,10 +226,7 @@ mod tests {
 
     #[test]
     fn multiline_comment_state_carries_within_side() {
-        let d = one_hunk(
-            "a.rs",
-            &[(LineKind::Added, "/* start"), (LineKind::Added, "still comment */ fn x() {}")],
-        );
+        let d = one_hunk("a.rs", &[(LineKind::Added, "/* start"), (LineKind::Added, "still comment */ fn x() {}")]);
         let spans = highlight(&d).unwrap();
         assert_eq!(spans[1].first().map(|(_, s)| *s), Some(Syn::Comment));
     }

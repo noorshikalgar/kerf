@@ -131,7 +131,9 @@ impl Kerf {
         if self.editors.contains_key(&sc.id) {
             return;
         }
-        let text = |side: &Option<ScratchSide>| side.as_ref().map(|s| String::from_utf8_lossy(&s.text).into_owned()).unwrap_or_default();
+        let text = |side: &Option<ScratchSide>| {
+            side.as_ref().map(|s| String::from_utf8_lossy(&s.text).into_owned()).unwrap_or_default()
+        };
         let (lt, rt) = (text(&sc.left), text(&sc.right));
         let scroll = UniformListScrollHandle::new();
         let font = self.font.clone();
@@ -185,7 +187,11 @@ impl Kerf {
             return;
         }
         let task = cx.spawn(async move |this, cx| {
-            let a = cx.background_executor().spawn(async move { align(&l, &r, ignore_ws) }).await;
+            // Off the UI thread: give the diff room for an exact result.
+            let a = cx
+                .background_executor()
+                .spawn(async move { crate::align::align_within(&l, &r, ignore_ws, std::time::Duration::from_secs(5)) })
+                .await;
             this.update(cx, |this, cx| {
                 if this.editors.get(&id).is_some_and(|p| p.generation == generation) {
                     this.apply_alignment(id, a, cx);
@@ -376,10 +382,17 @@ impl Kerf {
             .find(|t| t.target.scratch.as_ref().is_some_and(|s| s.id == id))
             .map(|t| t.target.change.path.clone())
             .unwrap_or_else(|| "Untitled Diff".into());
-        let both_empty = [Side::Left, Side::Right].iter().all(|s| self.editor(id, *s).is_none_or(|e| e.read(cx).buffer.is_empty()));
+        let both_empty =
+            [Side::Left, Side::Right].iter().all(|s| self.editor(id, *s).is_none_or(|e| e.read(cx).buffer.is_empty()));
         let status: AnyElement = match &aligned {
-            _ if both_empty => div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("Type or paste on both sides").into_any_element(),
-            Some(a) if a.identical() => div().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child("● Identical").into_any_element(),
+            _ if both_empty => div()
+                .text_size(theme::TEXT_CONTROL)
+                .text_color(theme::mute())
+                .child("Type or paste on both sides")
+                .into_any_element(),
+            Some(a) if a.identical() => {
+                div().text_size(theme::TEXT_CONTROL).text_color(theme::frost()).child("● Identical").into_any_element()
+            }
             Some(a) => div()
                 .flex()
                 .gap(px(6.))
@@ -419,7 +432,10 @@ impl Kerf {
                     )
                     .child(status)
                     .child(div().w(px(8.)))
-                    .child(seg("live-swap", "⇄ Swap", false, "Swap left and right").on_click(cx.listener(|this, _, _, cx| this.swap_scratch(cx))))
+                    .child(
+                        seg("live-swap", "⇄ Swap", false, "Swap left and right")
+                            .on_click(cx.listener(|this, _, _, cx| this.swap_scratch(cx))),
+                    )
                     .child(
                         seg("live-ws", "Ignore WS", self.ignore_ws, "Ignore whitespace differences")
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_ws(cx))),
@@ -523,9 +539,13 @@ impl Kerf {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_color(theme::mute())
-                            .when(!label.is_empty(), |d| d.child(div().min_w_0().overflow_hidden().text_ellipsis().child(label.clone())))
+                            .when(!label.is_empty(), |d| {
+                                d.child(div().min_w_0().overflow_hidden().text_ellipsis().child(label.clone()))
+                            })
                             .when(edited, |d| d.child(div().flex_none().text_color(theme::mod_fg()).child("● edited")))
-                            .when(!empty, |d| d.child(div().flex_none().child(format!("{} lines", thousands(lines as u64))))),
+                            .when(!empty, |d| {
+                                d.child(div().flex_none().child(format!("{} lines", thousands(lines as u64))))
+                            }),
                     )
                     .child(link("paste", "Paste").on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();

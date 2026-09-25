@@ -67,10 +67,9 @@ fn emit_hunk(diff: &FileDiff, lines: Range<usize>, layout: Layout, rows: &mut Ve
         if kind == LineKind::Context {
             rows.push(match layout {
                 Layout::Unified => Row::Line { idx: i, emph: vec![] },
-                Layout::Split => Row::Pair {
-                    left: Some(Cell { idx: i, emph: vec![] }),
-                    right: Some(Cell { idx: i, emph: vec![] }),
-                },
+                Layout::Split => {
+                    Row::Pair { left: Some(Cell { idx: i, emph: vec![] }), right: Some(Cell { idx: i, emph: vec![] }) }
+                }
             });
             i += 1;
             continue;
@@ -138,8 +137,12 @@ pub fn intraline(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>)
             similar::DiffOp::Equal { old_index, len, .. } => {
                 same += ot[old_index..old_index + len].iter().map(|r| r.len()).sum::<usize>();
             }
-            similar::DiffOp::Delete { old_index, old_len, .. } => push_span(&mut a, &ot[old_index..old_index + old_len]),
-            similar::DiffOp::Insert { new_index, new_len, .. } => push_span(&mut b, &nt[new_index..new_index + new_len]),
+            similar::DiffOp::Delete { old_index, old_len, .. } => {
+                push_span(&mut a, &ot[old_index..old_index + old_len])
+            }
+            similar::DiffOp::Insert { new_index, new_len, .. } => {
+                push_span(&mut b, &nt[new_index..new_index + new_len])
+            }
             similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 push_span(&mut a, &ot[old_index..old_index + old_len]);
                 push_span(&mut b, &nt[new_index..new_index + new_len]);
@@ -345,7 +348,15 @@ mod tests {
             total_lines: 13,
             text: Arc::from(text),
             lines,
-            hunks: vec![Hunk { old_start: 10, old_lines: 4, new_start: 10, new_lines: 3, context: "fn f()".into(), first_line: 0, line_count: 5 }],
+            hunks: vec![Hunk {
+                old_start: 10,
+                old_lines: 4,
+                new_start: 10,
+                new_lines: 3,
+                context: "fn f()".into(),
+                first_line: 0,
+                line_count: 5,
+            }],
             non_utf8: false,
             old_no_newline: false,
             new_no_newline: false,
@@ -400,7 +411,8 @@ mod tests {
         let rows = build(&d, Layout::Split);
         let w = wrap_rows(&d, &rows, 5);
         // pair (1: "let a = 1;" → 2 rows at 5 cols, 3: "let a = 10;" → 3) → 3 visual rows
-        let pair_row = rows.rows.iter().position(|r| matches!(r, Row::Pair { left: Some(Cell { idx: 1, .. }), .. })).unwrap();
+        let pair_row =
+            rows.rows.iter().position(|r| matches!(r, Row::Pair { left: Some(Cell { idx: 1, .. }), .. })).unwrap();
         assert_eq!(w.segments(pair_row), 3);
     }
 

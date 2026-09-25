@@ -91,7 +91,13 @@ impl Kerf {
         });
         let (left, right): (Vec<_>, Vec<_>) = GROUPS.iter().enumerate().partition(|(i, _)| i % 2 == 0);
         let column = |groups: Vec<(usize, &Group)>| {
-            div().flex_1().min_w_0().flex().flex_col().gap(px(16.)).children(groups.into_iter().map(|(_, (title, keys))| group(title, keys)))
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(16.))
+                .children(groups.into_iter().map(|(_, (title, keys))| group(title, keys)))
         };
         Some(
             div()
@@ -135,7 +141,12 @@ impl Kerf {
                                         .text_color(theme::bone())
                                         .child("Shortcuts"),
                                 )
-                                .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("Esc to close")),
+                                .child(
+                                    div()
+                                        .text_size(theme::TEXT_CONTROL)
+                                        .text_color(theme::mute())
+                                        .child("Esc to close"),
+                                ),
                         )
                         .child(div().flex().gap(px(32.)).child(column(left)).child(column(right))),
                 )
@@ -145,12 +156,8 @@ impl Kerf {
 }
 
 fn group(title: &str, keys: &[(&str, &str)]) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(micro(title.to_string()).mb(px(4.)))
-        .children(keys.iter().map(|(k, what)| {
+    div().flex().flex_col().gap(px(2.)).child(micro(title.to_string()).mb(px(4.))).children(keys.iter().map(
+        |(k, what)| {
             div()
                 .h(px(26.))
                 .flex()
@@ -158,7 +165,25 @@ fn group(title: &str, keys: &[(&str, &str)]) -> Div {
                 .gap(px(12.))
                 .border_b_1()
                 .border_color(theme::line())
-                .child(div().w(px(130.)).flex_none().text_size(theme::TEXT_LIST).text_color(theme::frost()).child(k.to_string()))
-                .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(theme::TEXT_LIST).text_color(theme::body()).child(what.to_string()))
-        }))
+                .child(
+                    div()
+                        .w(px(130.))
+                        .flex_none()
+                        .text_size(theme::TEXT_LIST)
+                        .text_color(theme::frost())
+                        .child(k.to_string()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(theme::TEXT_LIST)
+                        .text_color(theme::body())
+                        .child(what.to_string()),
+                )
+        },
+    ))
 }

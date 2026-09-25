@@ -92,9 +92,16 @@ fn is_empty_doc(lines: &[String]) -> bool {
 /// An empty side (a single blank line) counts as having no lines, so it never anchors on
 /// some blank line of the other side; its one editable line is pinned to the top row.
 pub fn align(old: &[String], new: &[String], ignore_ws: bool) -> Aligned {
+    align_within(old, new, ignore_ws, Duration::from_millis(250))
+}
+
+/// Like [`align`], with an explicit time budget. Past the budget the diff gets coarser
+/// (still valid), so background callers give it more room.
+pub fn align_within(old: &[String], new: &[String], ignore_ws: bool, budget: Duration) -> Aligned {
     let (old_empty, new_empty) = (is_empty_doc(old), is_empty_doc(new));
     if old_empty || new_empty {
-        let mut a = align_lines(if old_empty { &[] } else { old }, if new_empty { &[] } else { new }, ignore_ws);
+        let mut a =
+            align_lines(if old_empty { &[] } else { old }, if new_empty { &[] } else { new }, ignore_ws, budget);
         if a.rows() == 0 {
             a.left.push(filler());
             a.right.push(filler());
@@ -107,16 +114,26 @@ pub fn align(old: &[String], new: &[String], ignore_ws: bool) -> Aligned {
         }
         return a;
     }
-    align_lines(old, new, ignore_ws)
+    align_lines(old, new, ignore_ws, budget)
 }
 
-fn align_lines(old: &[String], new: &[String], ignore_ws: bool) -> Aligned {
-    let (ok, nk): (Vec<String>, Vec<String>) = if ignore_ws {
-        (old.iter().map(|s| normalize(s)).collect(), new.iter().map(|s| normalize(s)).collect())
-    } else {
-        (old.to_vec(), new.to_vec())
+/// Maps each distinct line to a small integer so the diff compares `u32`s, not strings.
+fn intern(old: &[String], new: &[String], ignore_ws: bool) -> (Vec<u32>, Vec<u32>) {
+    let mut ids: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::with_capacity(old.len() + new.len());
+    let mut id = |s: &String| {
+        let key = if ignore_ws { normalize(s) } else { s.clone() };
+        let next = ids.len() as u32;
+        *ids.entry(key).or_insert(next)
     };
-    let deadline = Instant::now() + Duration::from_millis(500);
+    let o = old.iter().map(&mut id).collect();
+    let n = new.iter().map(&mut id).collect();
+    (o, n)
+}
+
+fn align_lines(old: &[String], new: &[String], ignore_ws: bool, budget: Duration) -> Aligned {
+    let (ok, nk) = intern(old, new, ignore_ws);
+    let deadline = Instant::now() + budget;
     let ops = capture_diff_slices_deadline(Algorithm::Myers, &ok, &nk, Some(deadline));
     let mut a = Aligned::default();
     for op in ops {
@@ -188,6 +205,62 @@ mod tests {
                 format!("{} {}", side(&a.left[i]), side(&a.right[i]))
             })
             .collect()
+    }
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    /// Random texts: both sides always have equal rows, every line appears exactly once and
+    /// in order, counts match the marked rows, and unchanged rows hold equal text.
+    #[test]
+    fn property_alignment_invariants() {
+        let vocab = ["a", "b", "c", "let x = 1;", "", "  indented", "}"];
+        for seed in 1..800u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D));
+            let make = |rng: &mut Rng| -> Vec<String> {
+                let n = rng.below(12);
+                let mut v: Vec<String> = (0..n).map(|_| vocab[rng.below(vocab.len())].to_string()).collect();
+                if v.is_empty() {
+                    v.push(String::new());
+                }
+                v
+            };
+            let (old, new) = (make(&mut rng), make(&mut rng));
+            let a = align(&old, &new, false);
+            assert_eq!(a.left.len(), a.right.len(), "seed {seed}");
+            for (side, lines) in [(&a.left, &old), (&a.right, &new)] {
+                let seen: Vec<usize> = side.iter().filter_map(|r| r.line).collect();
+                assert_eq!(seen, (0..lines.len()).collect::<Vec<_>>(), "seed {seed}: every line once, in order");
+            }
+            let changed = |rows: &[SideRow]| rows.iter().filter(|r| r.kind == RowKind::Changed).count();
+            let empty = |v: &Vec<String>| v.len() == 1 && v[0].is_empty();
+            if !empty(&old) {
+                assert_eq!(changed(&a.left), a.deletions, "seed {seed}: deletions");
+            }
+            if !empty(&new) {
+                assert_eq!(changed(&a.right), a.additions, "seed {seed}: additions");
+            }
+            for i in 0..a.rows() {
+                if let (RowKind::Same, RowKind::Same, Some(l), Some(r)) =
+                    (a.left[i].kind, a.right[i].kind, a.left[i].line, a.right[i].line)
+                {
+                    if !empty(&old) && !empty(&new) {
+                        assert_eq!(old[l], new[r], "seed {seed}: row {i} marked same");
+                    }
+                }
+            }
+            assert_eq!(a.identical(), old == new || (empty(&old) && empty(&new)), "seed {seed}: identical");
+        }
     }
 
     #[test]
