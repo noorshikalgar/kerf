@@ -163,12 +163,11 @@ impl Kerf {
                                     &[("+ login.rs", theme::add_fg()), ("− billing.rs", theme::del_fg())],
                                 )),
                         )
-                        .child(
-                            div()
-                                .text_size(theme::TEXT_CONTROL)
-                                .text_color(theme::mute())
-                                .child("Switch with ⌘⇧M. Branches with no shared history always use Compare View."),
-                        ),
+                        .child(div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(
+                            super::widgets::keys(
+                                "Switch with ⌘⇧M. Branches with no shared history always use Compare View.",
+                            ),
+                        )),
                 )
                 .into_any_element(),
         )

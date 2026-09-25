@@ -84,5 +84,30 @@ fn main() {
         let name = if scale == 1 { format!("icon_{pt}x{pt}.png") } else { format!("icon_{pt}x{pt}@2x.png") };
         fs::write(set.join(name), render(&svg(px), px)).unwrap();
     }
+    // Windows: .ico with PNG entries (16–256), embedded into kerf.exe by build.rs.
+    let sizes = [16u32, 24, 32, 48, 64, 128, 256];
+    let pngs: Vec<Vec<u8>> = sizes.iter().map(|&px| render(&svg(px), px)).collect();
+    fs::write(out.join("kerf.ico"), ico(&sizes, &pngs)).unwrap();
     println!("icon written to {}", out.display());
+}
+
+/// Minimal ICO container holding PNG images (supported since Windows Vista).
+fn ico(sizes: &[u32], pngs: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0, 0, 1, 0]);
+    out.extend_from_slice(&(sizes.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * sizes.len() as u32;
+    for (px, png) in sizes.iter().zip(pngs) {
+        let dim = if *px >= 256 { 0 } else { *px as u8 };
+        out.extend_from_slice(&[dim, dim, 0, 0]);
+        out.extend_from_slice(&1u16.to_le_bytes()); // planes
+        out.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        out.extend_from_slice(&(png.len() as u32).to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        offset += png.len() as u32;
+    }
+    for png in pngs {
+        out.extend_from_slice(png);
+    }
+    out
 }

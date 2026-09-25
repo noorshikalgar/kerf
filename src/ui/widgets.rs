@@ -73,7 +73,7 @@ impl Render for Tip {
             .rounded(theme::RADIUS)
             .text_size(theme::TEXT_CONTROL)
             .text_color(theme::body())
-            .child(self.0)
+            .child(keys(self.0))
     }
 }
 
@@ -200,4 +200,38 @@ pub fn app_icon(size: f32) -> Div {
         .child(rect(cx - slit / 2. - gap - bar, 28., bar, 58., theme::del_fg(), 3.))
         .child(rect(cx + slit / 2. + gap, 38., bar, 58., theme::add_fg(), 3.))
         .child(rect(cx - slit / 2., 20., slit, 84., theme::frost(), 0.))
+}
+
+/// Shortcut labels are written Mac-style (⌘⇧N). Elsewhere they read "Ctrl+Shift+N".
+pub fn keys(label: &str) -> String {
+    if cfg!(target_os = "macos") {
+        return label.to_string();
+    }
+    let mut out = String::with_capacity(label.len() + 8);
+    for ch in label.chars() {
+        match ch {
+            '⌘' | '⌃' => out.push_str("Ctrl+"),
+            '⌥' => out.push_str("Alt+"),
+            '⇧' => out.push_str("Shift+"),
+            '↵' => out.push_str("Enter"),
+            '⌫' => out.push_str("Backspace"),
+            '⌦' => out.push_str("Delete"),
+            '⇥' => out.push_str("Tab"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod key_label_tests {
+    #[test]
+    fn labels_translate_off_macos() {
+        let l = super::keys("New window  ⌘⇧N");
+        if cfg!(target_os = "macos") {
+            assert_eq!(l, "New window  ⌘⇧N");
+        } else {
+            assert_eq!(l, "New window  Ctrl+Shift+N");
+        }
+    }
 }

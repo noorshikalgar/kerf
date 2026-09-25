@@ -71,60 +71,82 @@ pub fn init(cx: &mut App) {
 
 pub fn bindings() -> Vec<KeyBinding> {
     let c = Some("KerfEditor");
-    vec![
+    // Keys that are the same everywhere.
+    let mut b = vec![
         KeyBinding::new("backspace", Backspace, c),
-        KeyBinding::new("alt-backspace", BackspaceWord, c),
         KeyBinding::new("delete", Delete, c),
-        KeyBinding::new("alt-delete", DeleteWord, c),
         KeyBinding::new("left", Left, c),
         KeyBinding::new("right", Right, c),
         KeyBinding::new("up", Up, c),
         KeyBinding::new("down", Down, c),
-        KeyBinding::new("alt-left", WordLeft, c),
-        KeyBinding::new("alt-right", WordRight, c),
-        KeyBinding::new("cmd-left", LineStart, c),
-        KeyBinding::new("cmd-right", LineEnd, c),
         KeyBinding::new("home", LineStart, c),
         KeyBinding::new("end", LineEnd, c),
-        KeyBinding::new("cmd-up", DocStart, c),
-        KeyBinding::new("cmd-down", DocEnd, c),
         KeyBinding::new("pageup", PageUp, c),
         KeyBinding::new("pagedown", PageDown, c),
         KeyBinding::new("shift-left", SelectLeft, c),
         KeyBinding::new("shift-right", SelectRight, c),
         KeyBinding::new("shift-up", SelectUp, c),
         KeyBinding::new("shift-down", SelectDown, c),
-        KeyBinding::new("alt-shift-left", SelectWordLeft, c),
-        KeyBinding::new("alt-shift-right", SelectWordRight, c),
-        KeyBinding::new("cmd-shift-left", SelectLineStart, c),
-        KeyBinding::new("cmd-shift-right", SelectLineEnd, c),
         KeyBinding::new("shift-home", SelectLineStart, c),
         KeyBinding::new("shift-end", SelectLineEnd, c),
-        KeyBinding::new("cmd-shift-up", SelectDocStart, c),
-        KeyBinding::new("cmd-shift-down", SelectDocEnd, c),
         KeyBinding::new("enter", Newline, c),
         KeyBinding::new("tab", InsertTab, c),
-        KeyBinding::new("cmd-a", SelectAll, c),
-        KeyBinding::new("cmd-c", Copy, c),
-        KeyBinding::new("cmd-x", Cut, c),
-        KeyBinding::new("cmd-v", Paste, c),
-        KeyBinding::new("cmd-z", Undo, c),
-        KeyBinding::new("cmd-shift-z", Redo, c),
-        KeyBinding::new("cmd-enter", Submit, c),
+        KeyBinding::new("shift-tab", Outdent, c),
         KeyBinding::new("escape", Blur, c),
-        KeyBinding::new("cmd-backspace", DeleteToLineStart, c),
-        KeyBinding::new("cmd-delete", DeleteToLineEnd, c),
-        KeyBinding::new("cmd-shift-backspace", ClearAll, c),
-        KeyBinding::new("cmd-shift-k", DeleteLine, c),
-        KeyBinding::new("cmd-l", SelectLine, c),
         KeyBinding::new("alt-up", MoveLineUp, c),
         KeyBinding::new("alt-down", MoveLineDown, c),
         KeyBinding::new("alt-shift-up", DuplicateLineUp, c),
         KeyBinding::new("alt-shift-down", DuplicateLineDown, c),
-        KeyBinding::new("cmd-]", Indent, c),
-        KeyBinding::new("cmd-[", Outdent, c),
-        KeyBinding::new("shift-tab", Outdent, c),
-    ]
+        // secondary = ⌘ on macOS, Ctrl elsewhere.
+        KeyBinding::new("secondary-a", SelectAll, c),
+        KeyBinding::new("secondary-c", Copy, c),
+        KeyBinding::new("secondary-x", Cut, c),
+        KeyBinding::new("secondary-v", Paste, c),
+        KeyBinding::new("secondary-z", Undo, c),
+        KeyBinding::new("secondary-shift-z", Redo, c),
+        KeyBinding::new("secondary-enter", Submit, c),
+        KeyBinding::new("secondary-shift-backspace", ClearAll, c),
+        KeyBinding::new("secondary-shift-k", DeleteLine, c),
+        KeyBinding::new("secondary-l", SelectLine, c),
+        KeyBinding::new("secondary-]", Indent, c),
+        KeyBinding::new("secondary-[", Outdent, c),
+    ];
+    if cfg!(target_os = "macos") {
+        b.extend([
+            KeyBinding::new("alt-backspace", BackspaceWord, c),
+            KeyBinding::new("alt-delete", DeleteWord, c),
+            KeyBinding::new("alt-left", WordLeft, c),
+            KeyBinding::new("alt-right", WordRight, c),
+            KeyBinding::new("alt-shift-left", SelectWordLeft, c),
+            KeyBinding::new("alt-shift-right", SelectWordRight, c),
+            KeyBinding::new("cmd-left", LineStart, c),
+            KeyBinding::new("cmd-right", LineEnd, c),
+            KeyBinding::new("cmd-shift-left", SelectLineStart, c),
+            KeyBinding::new("cmd-shift-right", SelectLineEnd, c),
+            KeyBinding::new("cmd-up", DocStart, c),
+            KeyBinding::new("cmd-down", DocEnd, c),
+            KeyBinding::new("cmd-shift-up", SelectDocStart, c),
+            KeyBinding::new("cmd-shift-down", SelectDocEnd, c),
+            KeyBinding::new("cmd-backspace", DeleteToLineStart, c),
+            KeyBinding::new("cmd-delete", DeleteToLineEnd, c),
+        ]);
+    } else {
+        // Linux / Windows editing conventions.
+        b.extend([
+            KeyBinding::new("ctrl-backspace", BackspaceWord, c),
+            KeyBinding::new("ctrl-delete", DeleteWord, c),
+            KeyBinding::new("ctrl-left", WordLeft, c),
+            KeyBinding::new("ctrl-right", WordRight, c),
+            KeyBinding::new("ctrl-shift-left", SelectWordLeft, c),
+            KeyBinding::new("ctrl-shift-right", SelectWordRight, c),
+            KeyBinding::new("ctrl-home", DocStart, c),
+            KeyBinding::new("ctrl-end", DocEnd, c),
+            KeyBinding::new("ctrl-shift-home", SelectDocStart, c),
+            KeyBinding::new("ctrl-shift-end", SelectDocEnd, c),
+            KeyBinding::new("ctrl-y", Redo, c),
+        ]);
+    }
+    b
 }
 
 pub enum EditorEvent {

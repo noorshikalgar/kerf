@@ -126,12 +126,12 @@ fn not_a_repository_shows_an_error_and_the_start_page(cx: &mut TestAppContext) {
 fn compare_view_includes_base_side_changes(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-shift-m");
+    cx.simulate_keystrokes("secondary-shift-m");
     view.update(cx, |k, _| {
         assert_eq!(k.mode, RangeMode::Compare);
         assert!(file_paths(k).contains(&"README.md".to_string()));
     });
-    cx.simulate_keystrokes("cmd-shift-m");
+    cx.simulate_keystrokes("secondary-shift-m");
     view.update(cx, |k, _| assert_eq!(k.mode, RangeMode::PrMerge));
 }
 
@@ -139,7 +139,7 @@ fn compare_view_includes_base_side_changes(cx: &mut TestAppContext) {
 fn swap_flips_base_and_compare(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-shift-s");
+    cx.simulate_keystrokes("secondary-shift-s");
     view.update(cx, |k, _| {
         assert_eq!((k.base.as_deref(), k.compare.as_deref()), (Some("feature"), Some("main")));
         let d = k.range_data().unwrap();
@@ -154,7 +154,7 @@ fn refresh_picks_up_new_commits(cx: &mut TestAppContext) {
     write(repo.path(), "src/extra.rs", "x\n");
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-qm", "E: extra"]);
-    cx.simulate_keystrokes("cmd-r");
+    cx.simulate_keystrokes("secondary-r");
     view.update(cx, |k, _| {
         assert!(file_paths(k).contains(&"src/extra.rs".to_string()));
         assert_eq!(k.range_data().unwrap().cmp.ahead.len(), 3);
@@ -211,9 +211,9 @@ fn preview_tab_is_replaced_and_enter_pins_it(cx: &mut TestAppContext) {
         assert!(k.tabs[0].pinned);
         assert_eq!(active_path(k).as_deref(), Some("src/util.rs"));
     });
-    cx.simulate_keystrokes("cmd-shift-[");
+    cx.simulate_keystrokes("secondary-shift-[");
     view.update(cx, |k, _| assert_eq!(active_path(k).as_deref(), Some("src/new.rs")));
-    cx.simulate_keystrokes("cmd-w");
+    cx.simulate_keystrokes("secondary-w");
     view.update(cx, |k, _| {
         assert_eq!(k.tabs.len(), 1);
         assert_eq!(active_path(k).as_deref(), Some("src/util.rs"));
@@ -237,7 +237,7 @@ fn filter_narrows_the_file_list(cx: &mut TestAppContext) {
 fn commits_tab_opens_a_commits_own_files(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-shift-c");
+    cx.simulate_keystrokes("secondary-shift-c");
     view.update(cx, |k, cx| {
         assert_eq!(k.tab, Tab::Commits);
         let ix = k.rows.iter().position(|r| matches!(r, ListRow::Commit { .. })).unwrap();
@@ -255,7 +255,7 @@ fn commits_tab_opens_a_commits_own_files(cx: &mut TestAppContext) {
 fn a_commit_can_become_the_base(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-shift-c");
+    cx.simulate_keystrokes("secondary-shift-c");
     // Select C (second ahead commit) and make it the base: range is now just D.
     view.update(cx, |k, _| {
         let ix = k.rows.iter().enumerate().filter(|(_, r)| matches!(r, ListRow::Commit { .. })).nth(1).unwrap().0;
@@ -276,7 +276,7 @@ fn a_commit_can_become_the_base(cx: &mut TestAppContext) {
 fn picker_sets_compare_from_a_typed_query(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-2");
+    cx.simulate_keystrokes("secondary-2");
     cx.simulate_input("mai");
     cx.simulate_keystrokes("enter");
     view.update(cx, |k, _| {
@@ -332,7 +332,7 @@ fn scratch_editors(
 #[gpui::test]
 fn new_diff_is_live_and_enter_types_a_newline(cx: &mut TestAppContext) {
     let (view, cx) = boot(cx, Launch::Empty);
-    cx.simulate_keystrokes("cmd-n");
+    cx.simulate_keystrokes("secondary-n");
     let (left, right) = scratch_editors(&view, cx);
     // Left editor has focus: type two lines, Enter must insert a newline (regression).
     cx.simulate_input("hello");
@@ -351,14 +351,14 @@ fn new_diff_is_live_and_enter_types_a_newline(cx: &mut TestAppContext) {
         assert_eq!(a.rows(), 2);
     });
     // Undo on the right restores "hello" only; the diff updates live.
-    cx.simulate_keystrokes("cmd-z");
+    cx.simulate_keystrokes("secondary-z");
     right.update(cx, |e, _| assert_ne!(e.buffer.text(), "hello\nthere"));
 }
 
 #[gpui::test]
 fn empty_side_starts_at_the_top(cx: &mut TestAppContext) {
     let (view, cx) = boot(cx, Launch::Empty);
-    cx.simulate_keystrokes("cmd-n");
+    cx.simulate_keystrokes("secondary-n");
     let (_left, _right) = scratch_editors(&view, cx);
     cx.simulate_input("a");
     cx.simulate_keystrokes("enter enter enter");
@@ -385,7 +385,7 @@ fn two_files_open_as_an_editable_live_diff(cx: &mut TestAppContext) {
     });
     // Editing is in memory only: the file on disk is untouched.
     left.update_in(cx, |e, window, _| e.focus(window));
-    cx.simulate_keystrokes("cmd-shift-backspace");
+    cx.simulate_keystrokes("secondary-shift-backspace");
     left.update(cx, |e, _| assert!(e.buffer.is_empty()));
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "one\ntwo\nthree\n");
 }
@@ -393,7 +393,7 @@ fn two_files_open_as_an_editable_live_diff(cx: &mut TestAppContext) {
 #[gpui::test]
 fn identical_plain_texts_are_reported_identical(cx: &mut TestAppContext) {
     let (view, cx) = boot(cx, Launch::Empty);
-    cx.simulate_keystrokes("cmd-n");
+    cx.simulate_keystrokes("secondary-n");
     let (left, right) = scratch_editors(&view, cx);
     left.update(cx, |e, cx| e.set_text("same\ntext", cx));
     right.update(cx, |e, cx| e.set_text("same\ntext", cx));
@@ -411,7 +411,7 @@ fn closing_the_repo_keeps_plain_diff_tabs(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
     cx.simulate_keystrokes("enter"); // pin the git tab
-    cx.simulate_keystrokes("cmd-n");
+    cx.simulate_keystrokes("secondary-n");
     view.update(cx, |k, cx| {
         assert_eq!(k.tabs.len(), 2);
         k.close_repo(cx);
@@ -439,7 +439,7 @@ fn start_page_when_launched_empty(cx: &mut TestAppContext) {
 fn picker_opens_for_base_and_closes_with_escape(cx: &mut TestAppContext) {
     let repo = fixture();
     let (view, cx) = open(cx, repo.path());
-    cx.simulate_keystrokes("cmd-1");
+    cx.simulate_keystrokes("secondary-1");
     view.update(cx, |k, _| assert_eq!(k.picker.as_ref().map(|p| p.which), Some(Which::Base)));
     cx.simulate_keystrokes("escape");
     view.update(cx, |k, _| assert!(k.picker.is_none()));

@@ -130,7 +130,7 @@ impl ScratchSide {
         }
     }
     fn short_name(&self) -> String {
-        self.label.rsplit('/').next().unwrap_or(&self.label).to_string()
+        self.label.rsplit(['/', '\\']).next().unwrap_or(&self.label).to_string()
     }
 }
 
@@ -328,7 +328,8 @@ impl Kerf {
     pub fn new(launch: super::Launch, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let persisted = Persisted::load();
         let names = window.text_system().all_font_names();
-        let font = theme::FONT_CANDIDATES.iter().find(|c| names.iter().any(|n| n == *c)).copied().unwrap_or("Menlo");
+        let font =
+            theme::FONT_CANDIDATES.iter().find(|c| names.iter().any(|n| n == *c)).copied().unwrap_or(fallback_font());
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut this = Self {
@@ -1955,6 +1956,17 @@ pub fn fuzzy(query: &str, text: &str) -> Option<(i64, Vec<usize>)> {
     }
     score -= t.len() as i64; // prefer shorter names
     Some((score, pos))
+}
+
+/// Last-resort monospace font when none of `theme::FONT_CANDIDATES` is installed.
+fn fallback_font() -> &'static str {
+    if cfg!(windows) {
+        "Consolas"
+    } else if cfg!(target_os = "macos") {
+        "Menlo"
+    } else {
+        "monospace"
+    }
 }
 
 #[cfg(test)]

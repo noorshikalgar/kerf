@@ -14,10 +14,25 @@ env:
 
 jobs:
   check:
-    name: fmt · clippy · test (macOS)
-    runs-on: macos-14
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "macOS", os: macos-14 }
+          - { name: "Linux", os: ubuntu-24.04 }
+          - { name: "Windows", os: windows-2022 }
     steps:
       - uses: actions/checkout@v5
+
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ pkg-config libasound2-dev libfontconfig-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev libvulkan-dev libzstd-dev libssl-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -26,6 +41,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Format
+        if: runner.os == 'macOS'
         run: cargo fmt --check
 
       - name: Clippy
@@ -35,4 +51,5 @@ jobs:
         run: cargo test
 
       - name: Performance (release)
+        if: runner.os == 'macOS'
         run: cargo test --release --test perf -- --ignored --nocapture

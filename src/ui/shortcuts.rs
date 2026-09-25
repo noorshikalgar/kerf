@@ -80,6 +80,26 @@ const GROUPS: &[Group] = &[
     ),
 ];
 
+/// Linux / Windows rows that differ from the Mac ones beyond symbol translation:
+/// (Mac label as written above, PC label, PC description).
+const PC_OVERRIDES: &[(&str, &str, &str)] = &[
+    ("⌘Z  ⌘⇧Z", "Ctrl+Z  Ctrl+Y", "Undo / redo in editor"),
+    ("⌘⌫  ⌘⌦", "Ctrl+Backspace  Ctrl+Delete", "Delete word left / right"),
+    ("⌥← ⌥→", "Ctrl+← Ctrl+→", "Move by word (Shift selects)"),
+    ("⌘⇧]  ⌃Tab", "Ctrl+Tab", "Next tab"),
+    ("⌘⇧[  ⌃⇧Tab", "Ctrl+Shift+Tab", "Previous tab"),
+];
+
+/// The label and description to show for a row on this platform.
+fn row(mac: &str, what: &str) -> (String, String) {
+    if !cfg!(target_os = "macos") {
+        if let Some((_, pc, desc)) = PC_OVERRIDES.iter().find(|(m, _, _)| *m == mac) {
+            return (pc.to_string(), desc.to_string());
+        }
+    }
+    (super::widgets::keys(mac), what.to_string())
+}
+
 impl Kerf {
     pub fn render_shortcuts(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.shortcuts_open {
@@ -158,6 +178,7 @@ impl Kerf {
 fn group(title: &str, keys: &[(&str, &str)]) -> Div {
     div().flex().flex_col().gap(px(2.)).child(micro(title.to_string()).mb(px(4.))).children(keys.iter().map(
         |(k, what)| {
+            let (k, what) = row(k, what);
             div()
                 .h(px(26.))
                 .flex()
