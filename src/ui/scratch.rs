@@ -79,7 +79,7 @@ impl Kerf {
         self.open_target(Target::scratch(s), true, cx);
     }
 
-    /// ⌘⇧N — pick two files (or one; the other side stays empty to type or open into).
+    /// ⌥⌘N — pick two files (or one; the other side stays empty to type or open into).
     pub fn prompt_compare_files(&mut self, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: true,

@@ -81,7 +81,7 @@ impl Kerf {
                     .on_click(cx.listener(|this, _, _, cx| this.new_scratch(cx))),
             )
             .child(
-                seg("tb-files", "Compare Files", false, "Pick two files and diff them  ⌘⇧N")
+                seg("tb-files", "Compare Files", false, "Pick two files and diff them  ⌥⌘N")
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
             )

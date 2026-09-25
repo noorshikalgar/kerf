@@ -409,6 +409,7 @@ impl Kerf {
         match launch {
             super::Launch::Files(a, b) => this.open_files_diff(a, b, cx),
             super::Launch::Repo(p) => this.open_repo(p, cx),
+            super::Launch::Empty => {}
             super::Launch::Default => {
                 if let Some(p) = this.persisted.last_repo.clone() {
                     this.open_repo(p, cx);
@@ -1589,6 +1590,7 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle_tab(true, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| this.cycle_tab(false, cx)))
             .on_action(cx.listener(|this, _: &NewDiff, _, cx| this.new_scratch(cx)))
+            .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
             .on_action(cx.listener(|this, _: &CompareFiles, _, cx| this.prompt_compare_files(cx)))
             .on_action(cx.listener(|this, _: &Paste, _, cx| this.paste(cx)))
             .on_action(cx.listener(|this, _: &ShowShortcuts, _, cx| {

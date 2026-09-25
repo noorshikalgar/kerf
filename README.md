@@ -14,7 +14,7 @@ A fast, native, keyboard-first **Git branch diff viewer** built in Rust on [GPUI
 - Merge base, ahead / behind counts
 - **Files** tab: tree or flat, status glyphs, +/− counts, rename similarity, binary/generated badges, filter, viewed ticks
 - **Commits** tab: ahead + behind groups, expand a commit to walk its own files (merges vs first parent)
-- **Plain diff (no git)** — live side-by-side diff editor (like Meld / VS Code's diff editor): New Diff (⌘N) to type or paste, Compare Files (⌘⇧N) or `kerf a.txt b.txt`. Both sides always editable; the diff updates as you type, filler rows keep matching lines aligned, one scroll moves both sides. Files are never written.
+- **Plain diff (no git)** — live side-by-side diff editor (like Meld / VS Code's diff editor): New Diff (⌘N) to type or paste, Compare Files (⌥⌘N) or `kerf a.txt b.txt`. Both sides always editable; the diff updates as you type, filler rows keep matching lines aligned, one scroll moves both sides. Files are never written.
 - **Tabs**: single-click opens a preview tab (italic), double-click / ↵ keeps it; ⌘W close, ⌘⇧[ ⌘⇧] switch, middle-click close; each tab keeps its scroll
 - Diff pane: unified or split, word-level emphasis, syntax colour, hunk headers with function context, collapsed gaps (click to expand), hunk minimap
 - Big files: diffs computed off the UI thread, virtualized rendering, 20 MB gate, 10k-char line truncation, lockfiles/`*.min.*`/`dist/` collapsed by default
@@ -48,6 +48,7 @@ In the app: click **Shortcuts** in the status bar for the full list.
 | ⌘B | toggle sidebar | t | tree / flat |
 | b / c | commit → base / compare | F1 / ? | explain views |
 | ⌘W | close tab | ⌘⇧[ ⌘⇧] | previous / next tab |
+| ⌘⇧N | new window | ⌘⇧W | close window |
 | / | filter files | y | copy path / SHA |
 | space / ⇧space | page down / up | g / G | top / bottom |
 

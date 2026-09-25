@@ -19,13 +19,15 @@ pub use app::Kerf;
 pub enum Launch {
     /// Last repository, if any.
     Default,
+    /// Start page (new windows).
+    Empty,
     Repo(PathBuf),
     /// `kerf a.txt b.txt` — plain diff of two files.
     Files(PathBuf, PathBuf),
 }
 
 use gpui::{
-    actions, point, px, size, App, AppContext as _, Bounds, KeyBinding, TitlebarOptions,
+    actions, point, px, size, App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, SystemMenuType, TitlebarOptions,
     WindowBackgroundAppearance, WindowBounds, WindowOptions,
 };
 use std::path::PathBuf;
@@ -68,6 +70,8 @@ actions!(
         CompareFiles,
         Paste,
         ShowShortcuts,
+        NewWindow,
+        CloseWindow,
         FocusFilter,
         PageUp,
         PageDown,
@@ -101,7 +105,9 @@ fn app_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-shift-tab", PrevTab, Some(ROOT)),
         KeyBinding::new("f1", ShowInfo, Some(ROOT)),
         KeyBinding::new("cmd-n", NewDiff, Some(ROOT)),
-        KeyBinding::new("cmd-shift-n", CompareFiles, Some(ROOT)),
+        KeyBinding::new("alt-cmd-n", CompareFiles, Some(ROOT)),
+        KeyBinding::new("cmd-shift-n", NewWindow, Some(ROOT)),
+        KeyBinding::new("cmd-shift-w", CloseWindow, Some(ROOT)),
         KeyBinding::new("cmd-v", Paste, Some(ROOT)),
         KeyBinding::new("cmd-/", ShowShortcuts, Some(ROOT)),
         // Navigation works in both normal and text-input mode.
@@ -143,10 +149,64 @@ pub fn init(cx: &mut App) {
     editor::init(cx);
     cx.bind_keys(app_bindings());
     cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &NewWindow, cx| open_window(cx, Launch::Empty));
+    // Quit when the last window closes.
+    cx.on_window_closed(|cx| {
+        if cx.windows().is_empty() {
+            cx.quit();
+        }
+    })
+    .detach();
+    set_menus(cx);
+}
+
+fn set_menus(cx: &mut App) {
+    cx.set_menus(vec![
+        Menu {
+            name: "Kerf".into(),
+            items: vec![
+                MenuItem::action("Keyboard Shortcuts", ShowShortcuts),
+                MenuItem::separator(),
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::separator(),
+                MenuItem::action("Quit Kerf", Quit),
+            ],
+        },
+        Menu {
+            name: "File".into(),
+            items: vec![
+                MenuItem::action("New Window", NewWindow),
+                MenuItem::action("New Diff", NewDiff),
+                MenuItem::action("Compare Files…", CompareFiles),
+                MenuItem::separator(),
+                MenuItem::action("Open Repository…", OpenRepo),
+                MenuItem::action("Refresh", Refresh),
+                MenuItem::separator(),
+                MenuItem::action("Close Tab", CloseTab),
+                MenuItem::action("Close Window", CloseWindow),
+            ],
+        },
+        Menu {
+            name: "View".into(),
+            items: vec![
+                MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                MenuItem::action("Split / Unified", ToggleSplit),
+                MenuItem::action("Wrap Lines", ToggleWrap),
+                MenuItem::action("Ignore Whitespace", ToggleWhitespace),
+                MenuItem::separator(),
+                MenuItem::action("PR Merge / Compare View", ToggleMode),
+                MenuItem::action("How the Views Differ", ShowInfo),
+            ],
+        },
+    ]);
 }
 
 pub fn open_window(cx: &mut App, launch: Launch) {
-    let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+    // Cascade new windows so they don't stack exactly on top of each other.
+    let n = cx.windows().len() as f32;
+    let mut bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+    bounds.origin.x += px(28. * n);
+    bounds.origin.y += px(28. * n);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -188,6 +248,8 @@ mod tests {
         assert_eq!(resolve("escape", &editing), "kerf_editor::Blur");
         // App shortcuts without an editor binding still work while typing.
         assert_eq!(resolve("cmd-w", &editing), "kerf::CloseTab");
+        assert_eq!(resolve("cmd-shift-n", &editing), "kerf::NewWindow");
+        assert_eq!(resolve("alt-cmd-n", &["Kerf"]), "kerf::CompareFiles");
     }
 
     #[test]

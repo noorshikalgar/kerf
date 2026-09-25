@@ -53,6 +53,8 @@ const GROUPS: &[Group] = &[
         "Tabs",
         &[
             ("⌘W", "Close tab"),
+            ("⌘⇧N", "New window"),
+            ("⌘⇧W", "Close window"),
             ("⌘⇧]  ⌃Tab", "Next tab"),
             ("⌘⇧[  ⌃⇧Tab", "Previous tab"),
             ("double-click", "Keep preview tab open"),
@@ -62,7 +64,7 @@ const GROUPS: &[Group] = &[
         "Plain Diff",
         &[
             ("⌘N", "New diff — type or paste on both sides"),
-            ("⌘⇧N", "Compare two files (editable)"),
+            ("⌥⌘N", "Compare two files (editable)"),
             ("⌘V", "Paste (editor, or first empty side)"),
             ("⌘Z  ⌘⇧Z", "Undo / redo in editor"),
             ("⌥← ⌥→", "Move by word (⇧ selects)"),
