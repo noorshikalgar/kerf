@@ -51,6 +51,17 @@ actions!(
         Redo,
         Submit,
         Blur,
+        DeleteToLineStart,
+        DeleteToLineEnd,
+        ClearAll,
+        DeleteLine,
+        SelectLine,
+        MoveLineUp,
+        MoveLineDown,
+        DuplicateLineUp,
+        DuplicateLineDown,
+        Indent,
+        Outdent,
     ]
 );
 
@@ -101,6 +112,18 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-z", Redo, c),
         KeyBinding::new("cmd-enter", Submit, c),
         KeyBinding::new("escape", Blur, c),
+        KeyBinding::new("cmd-backspace", DeleteToLineStart, c),
+        KeyBinding::new("cmd-delete", DeleteToLineEnd, c),
+        KeyBinding::new("cmd-shift-backspace", ClearAll, c),
+        KeyBinding::new("cmd-shift-k", DeleteLine, c),
+        KeyBinding::new("cmd-l", SelectLine, c),
+        KeyBinding::new("alt-up", MoveLineUp, c),
+        KeyBinding::new("alt-down", MoveLineDown, c),
+        KeyBinding::new("alt-shift-up", DuplicateLineUp, c),
+        KeyBinding::new("alt-shift-down", DuplicateLineDown, c),
+        KeyBinding::new("cmd-]", Indent, c),
+        KeyBinding::new("cmd-[", Outdent, c),
+        KeyBinding::new("shift-tab", Outdent, c),
     ]
 }
 
@@ -509,7 +532,56 @@ impl Render for Editor {
                 this.after_edit(cx)
             }))
             .on_action(cx.listener(|this, _: &InsertTab, _, cx| {
-                this.buffer.insert(&" ".repeat(TAB));
+                // Tab on a multi-line selection indents it; otherwise inserts spaces.
+                if this.buffer.multi_line_selection() {
+                    this.buffer.indent(TAB);
+                } else {
+                    this.buffer.insert(&" ".repeat(TAB));
+                }
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &DeleteToLineStart, _, cx| {
+                this.buffer.delete_to_line_start();
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &DeleteToLineEnd, _, cx| {
+                this.buffer.delete_to_line_end();
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &ClearAll, _, cx| {
+                this.buffer.clear_all();
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &DeleteLine, _, cx| {
+                this.buffer.delete_lines();
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &SelectLine, _, cx| {
+                this.buffer.select_line();
+                this.after_move(cx)
+            }))
+            .on_action(cx.listener(|this, _: &MoveLineUp, _, cx| {
+                this.buffer.move_lines(false);
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &MoveLineDown, _, cx| {
+                this.buffer.move_lines(true);
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &DuplicateLineUp, _, cx| {
+                this.buffer.duplicate_lines(false);
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &DuplicateLineDown, _, cx| {
+                this.buffer.duplicate_lines(true);
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &Indent, _, cx| {
+                this.buffer.indent(TAB);
+                this.after_edit(cx)
+            }))
+            .on_action(cx.listener(|this, _: &Outdent, _, cx| {
+                this.buffer.outdent(TAB);
                 this.after_edit(cx)
             }))
             .on_action(cx.listener(|this, _: &SelectAll, _, cx| {

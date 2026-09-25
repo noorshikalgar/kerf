@@ -376,6 +376,169 @@ impl Buffer {
         self.changed();
     }
 
+    // ── line operations ──
+
+    /// Lines covered by the selection (or the caret line). A selection ending at column 0
+    /// does not include that last line, like every editor.
+    fn line_span(&self) -> (usize, usize) {
+        match self.selection() {
+            Some((s, e)) if e.col == 0 && e.row > s.row => (s.row, e.row - 1),
+            Some((s, e)) => (s.row, e.row),
+            None => (self.caret.row, self.caret.row),
+        }
+    }
+
+    /// ⌘⌫ — delete from the caret to the start of the line (joins lines at column 0).
+    pub fn delete_to_line_start(&mut self) {
+        if self.selection().is_some() || self.caret.col == 0 {
+            return self.backspace(false);
+        }
+        self.anchor = Some(Pos::new(self.caret.row, 0));
+        self.checkpoint();
+        self.delete_selection_raw();
+        self.changed();
+    }
+
+    /// ⌘⌦ — delete from the caret to the end of the line.
+    pub fn delete_to_line_end(&mut self) {
+        let c = self.caret;
+        let end = char_len(&self.lines[c.row]);
+        if self.selection().is_some() || c.col == end {
+            return self.delete_forward(false);
+        }
+        self.anchor = Some(Pos::new(c.row, end));
+        self.checkpoint();
+        self.delete_selection_raw();
+        self.changed();
+    }
+
+    /// ⌘⇧⌫ — clear everything (undoable).
+    pub fn clear_all(&mut self) {
+        if self.is_empty() {
+            return;
+        }
+        self.checkpoint();
+        self.lines = vec![String::new()];
+        self.caret = Pos::default();
+        self.anchor = None;
+        self.changed();
+    }
+
+    /// ⌘⇧K — delete the selected / current line(s).
+    pub fn delete_lines(&mut self) {
+        let (a, b) = self.line_span();
+        self.checkpoint();
+        if self.lines.len() == b - a + 1 {
+            self.lines = vec![String::new()];
+            self.caret = Pos::default();
+        } else {
+            self.lines.drain(a..=b);
+            let row = a.min(self.lines.len() - 1);
+            self.caret = Pos::new(row, self.caret.col.min(char_len(&self.lines[row])));
+        }
+        self.anchor = None;
+        self.changed();
+    }
+
+    /// ⌘L — select the current line; again to extend down by a line.
+    pub fn select_line(&mut self) {
+        let (a, b) = match self.selection() {
+            Some((s, e)) if s.col == 0 && e.col == 0 => (s.row, e.row),
+            _ => {
+                let (a, _) = self.line_span();
+                (a, a)
+            }
+        };
+        let last = self.lines.len() - 1;
+        self.anchor = Some(Pos::new(a, 0));
+        self.caret = if b < last { Pos::new(b + 1, 0) } else { Pos::new(last, char_len(&self.lines[last])) };
+        self.goal_col = None;
+    }
+
+    /// ⌥↑ / ⌥↓ — move the selected / current line(s), keeping the selection.
+    // `shift` is applied to both caret and anchor; clippy only sees the first call.
+    #[allow(clippy::redundant_closure_call)]
+    pub fn move_lines(&mut self, down: bool) {
+        let (a, b) = self.line_span();
+        if (down && b + 1 >= self.lines.len()) || (!down && a == 0) {
+            return;
+        }
+        self.checkpoint();
+        if down {
+            let l = self.lines.remove(b + 1);
+            self.lines.insert(a, l);
+        } else {
+            let l = self.lines.remove(a - 1);
+            self.lines.insert(b, l);
+        }
+        let shift = |p: Pos| Pos::new(if down { p.row + 1 } else { p.row - 1 }, p.col);
+        self.caret = shift(self.caret);
+        self.anchor = self.anchor.map(shift);
+        self.changed();
+    }
+
+    /// ⇧⌥↓ / ⇧⌥↑ — duplicate the selected / current line(s) below (caret follows) or above.
+    // `shift` is applied to both caret and anchor; clippy only sees the first call.
+    #[allow(clippy::redundant_closure_call)]
+    pub fn duplicate_lines(&mut self, down: bool) {
+        let (a, b) = self.line_span();
+        self.checkpoint();
+        let copy: Vec<String> = self.lines[a..=b].to_vec();
+        let n = copy.len();
+        self.lines.splice(b + 1..b + 1, copy);
+        if down {
+            let shift = |p: Pos| Pos::new(p.row + n, p.col);
+            self.caret = shift(self.caret);
+            self.anchor = self.anchor.map(shift);
+        }
+        self.changed();
+    }
+
+    /// ⌘] / Tab on a selection — indent the line(s) by `width` spaces.
+    // `shift` is applied to both caret and anchor; clippy only sees the first call.
+    #[allow(clippy::redundant_closure_call)]
+    pub fn indent(&mut self, width: usize) {
+        let (a, b) = self.line_span();
+        self.checkpoint();
+        let pad = " ".repeat(width);
+        for l in &mut self.lines[a..=b] {
+            l.insert_str(0, &pad);
+        }
+        let shift = |p: Pos| if p.row >= a && p.row <= b { Pos::new(p.row, p.col + width) } else { p };
+        self.caret = shift(self.caret);
+        self.anchor = self.anchor.map(shift);
+        self.changed();
+    }
+
+    /// ⌘[ / ⇧Tab — outdent the line(s) by up to `width` spaces (or one tab).
+    // `shift` is applied to both caret and anchor; clippy only sees the first call.
+    #[allow(clippy::redundant_closure_call)]
+    pub fn outdent(&mut self, width: usize) {
+        let (a, b) = self.line_span();
+        self.checkpoint();
+        let mut removed = vec![0; b - a + 1];
+        for (i, l) in self.lines[a..=b].iter_mut().enumerate() {
+            let n = if l.starts_with('\t') { 1 } else { l.chars().take(width).take_while(|c| *c == ' ').count() };
+            l.drain(..n);
+            removed[i] = n;
+        }
+        let shift = |p: Pos| {
+            if p.row >= a && p.row <= b {
+                Pos::new(p.row, p.col.saturating_sub(removed[p.row - a]))
+            } else {
+                p
+            }
+        };
+        self.caret = shift(self.caret);
+        self.anchor = self.anchor.map(shift);
+        self.changed();
+    }
+
+    /// True when the selection spans more than one line (Tab then indents).
+    pub fn multi_line_selection(&self) -> bool {
+        self.selection().is_some_and(|(s, e)| e.row > s.row)
+    }
+
     pub fn undo(&mut self) -> bool {
         let Some(s) = self.undo.pop() else { return false };
         self.redo.push(Snapshot { lines: std::mem::replace(&mut self.lines, s.lines), caret: self.caret });
@@ -553,6 +716,78 @@ mod tests {
         b.set_caret(Pos::new(0, 2), false);
         b.insert("X");
         assert_eq!(b.text(), "héXllo");
+    }
+
+    #[test]
+    fn delete_to_line_start_and_end() {
+        let mut b = Buffer::new("hello world");
+        b.set_caret(Pos::new(0, 6), false);
+        b.delete_to_line_start();
+        assert_eq!(b.text(), "world");
+        b.delete_to_line_end();
+        assert_eq!(b.text(), "");
+        let mut j = Buffer::new("a\nb");
+        j.set_caret(Pos::new(1, 0), false);
+        j.delete_to_line_start(); // at column 0: joins with the line above
+        assert_eq!(j.text(), "ab");
+    }
+
+    #[test]
+    fn clear_all_is_undoable() {
+        let mut b = Buffer::new("one\ntwo");
+        b.clear_all();
+        assert!(b.is_empty());
+        b.undo();
+        assert_eq!(b.text(), "one\ntwo");
+    }
+
+    #[test]
+    fn delete_lines_covers_selection() {
+        let mut b = Buffer::new("a\nb\nc\nd");
+        b.set_caret(Pos::new(1, 0), false);
+        b.set_caret(Pos::new(2, 1), true);
+        b.delete_lines();
+        assert_eq!(b.text(), "a\nd");
+        let mut all = Buffer::new("only");
+        all.delete_lines();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn select_line_extends() {
+        let mut b = Buffer::new("a\nb\nc");
+        b.select_line();
+        assert_eq!(b.selected_text().unwrap(), "a\n");
+        b.select_line();
+        assert_eq!(b.selected_text().unwrap(), "a\nb\n");
+    }
+
+    #[test]
+    fn move_and_duplicate_lines() {
+        let mut b = Buffer::new("a\nb\nc");
+        b.move_lines(true);
+        assert_eq!(b.text(), "b\na\nc");
+        assert_eq!(at(&b), (1, 0));
+        b.move_lines(false);
+        assert_eq!(b.text(), "a\nb\nc");
+        b.move_lines(false); // already at top: no-op
+        assert_eq!(b.text(), "a\nb\nc");
+        b.duplicate_lines(true);
+        assert_eq!(b.text(), "a\na\nb\nc");
+        assert_eq!(at(&b), (1, 0));
+    }
+
+    #[test]
+    fn indent_and_outdent_keep_caret_on_text() {
+        let mut b = Buffer::new("x\ny");
+        b.set_caret(Pos::new(0, 1), false);
+        b.set_caret(Pos::new(1, 1), true);
+        b.indent(4);
+        assert_eq!(b.text(), "    x\n    y");
+        assert_eq!(at(&b), (1, 5));
+        b.outdent(4);
+        assert_eq!(b.text(), "x\ny");
+        assert_eq!(at(&b), (1, 1));
     }
 
     #[test]

@@ -246,6 +246,8 @@ mod tests {
         assert_eq!(resolve("up", &editing), "kerf_editor::Up");
         assert_eq!(resolve("cmd-v", &editing), "kerf_editor::Paste");
         assert_eq!(resolve("escape", &editing), "kerf_editor::Blur");
+        assert_eq!(resolve("cmd-shift-backspace", &editing), "kerf_editor::ClearAll");
+        assert_eq!(resolve("alt-down", &editing), "kerf_editor::MoveLineDown");
         // App shortcuts without an editor binding still work while typing.
         assert_eq!(resolve("cmd-w", &editing), "kerf::CloseTab");
         assert_eq!(resolve("cmd-shift-n", &editing), "kerf::NewWindow");
