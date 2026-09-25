@@ -1,0 +1,127 @@
+//! Small shared primitives (docs/03-style.md §5). New pattern used twice → lives here.
+
+use crate::git::ChangeStatus;
+use crate::theme;
+use gpui::{div, prelude::*, px, Div, Hsla, SharedString, Stateful};
+
+/// Uppercase micro-label: `BASE`, `FILES`.
+pub fn micro(text: impl Into<SharedString>) -> Div {
+    div()
+        .text_size(theme::TEXT_MICRO)
+        .text_color(theme::mute())
+        .child(text.into().to_uppercase())
+}
+
+pub fn status_color(s: ChangeStatus) -> Hsla {
+    match s {
+        ChangeStatus::Added => theme::add_fg(),
+        ChangeStatus::Deleted => theme::del_fg(),
+        ChangeStatus::Modified | ChangeStatus::TypeChange => theme::mod_fg(),
+        ChangeStatus::Renamed | ChangeStatus::Copied => theme::frost(),
+    }
+}
+
+pub fn status_glyph(s: ChangeStatus) -> Div {
+    div()
+        .w(px(12.))
+        .flex_none()
+        .text_size(theme::TEXT_CONTROL)
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(status_color(s))
+        .child(s.glyph())
+}
+
+/// `+42 −8` counts; `None` renders nothing for that side.
+pub fn counts(add: Option<u64>, del: Option<u64>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(6.))
+        .text_size(theme::TEXT_CONTROL)
+        .when_some(add.filter(|a| *a > 0), |d, a| d.child(div().text_color(theme::add_fg()).child(format!("+{a}"))))
+        .when_some(del.filter(|x| *x > 0), |d, x| d.child(div().text_color(theme::del_fg()).child(format!("−{x}"))))
+}
+
+/// Segmented icon toggle cell.
+pub fn seg(id: impl Into<SharedString>, label: &'static str, active: bool, tooltip: &'static str) -> Stateful<Div> {
+    div()
+        .id(gpui::ElementId::Name(id.into()))
+        .h(theme::CONTROL_H)
+        .min_w(px(24.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme::RADIUS)
+        .text_size(theme::TEXT_CONTROL)
+        .cursor_pointer()
+        .text_color(if active { theme::bone() } else { theme::mute() })
+        .when(active, |d| d.bg(theme::slate()))
+        .when(!active, |d| d.hover(|s| s.bg(theme::ash()).text_color(theme::body())))
+        .tooltip(move |_, cx| cx.new(|_| Tip(tooltip)).into())
+        .child(label)
+}
+
+/// Plain text tooltip.
+pub struct Tip(pub &'static str);
+
+impl Render for Tip {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(8.))
+            .py(px(4.))
+            .bg(theme::crypt())
+            .border_1()
+            .border_color(theme::line_hi())
+            .rounded(theme::RADIUS)
+            .text_size(theme::TEXT_CONTROL)
+            .text_color(theme::body())
+            .child(self.0)
+    }
+}
+
+pub fn spinner() -> Div {
+    div().text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child("•••")
+}
+
+/// "3d", "5h", "just now"
+pub fn age(ts: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(ts);
+    let s = (now - ts).max(0);
+    match s {
+        0..=59 => "now".into(),
+        60..=3599 => format!("{}m", s / 60),
+        3600..=86_399 => format!("{}h", s / 3600),
+        86_400..=2_591_999 => format!("{}d", s / 86_400),
+        2_592_000..=31_535_999 => format!("{}mo", s / 2_592_000),
+        _ => format!("{}y", s / 31_536_000),
+    }
+}
+
+/// Human byte size.
+pub fn bytes(n: u64) -> String {
+    const U: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1024. && u < U.len() - 1 {
+        v /= 1024.;
+        u += 1;
+    }
+    if u == 0 { format!("{n} B") } else { format!("{v:.1} {}", U[u]) }
+}
+
+/// Thousands separator.
+pub fn thousands(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}

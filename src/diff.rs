@@ -212,16 +212,17 @@ pub fn truncate(s: &str) -> (&str, usize) {
     (&s[..end], s[end..].chars().count())
 }
 
-/// Expands tabs to 4 spaces, keeping emphasis ranges aligned.
-pub fn expand_tabs(s: &str, emph: &[Range<usize>]) -> (String, Vec<Range<usize>>) {
+/// Expands tabs to 4 spaces. When tabs were present, also returns a byte-offset map
+/// (`map[old] = new`, length `s.len() + 1`) so highlight ranges can be shifted.
+pub fn expand_tabs(s: &str) -> (String, Option<Vec<usize>>) {
     if !s.contains('\t') {
-        return (s.to_string(), emph.to_vec());
+        return (s.to_string(), None);
     }
     let mut out = String::with_capacity(s.len() + 8);
-    let mut map = Vec::with_capacity(s.len() + 1);
+    let mut map = vec![0; s.len() + 1];
     for (i, ch) in s.char_indices() {
-        while map.len() <= i {
-            map.push(out.len());
+        for m in map.iter_mut().skip(i).take(ch.len_utf8()) {
+            *m = out.len();
         }
         if ch == '\t' {
             out.push_str("    ");
@@ -229,11 +230,8 @@ pub fn expand_tabs(s: &str, emph: &[Range<usize>]) -> (String, Vec<Range<usize>>
             out.push(ch);
         }
     }
-    while map.len() <= s.len() {
-        map.push(out.len());
-    }
-    let emph = emph.iter().map(|r| map[r.start]..map[r.end.min(s.len())]).collect();
-    (out, emph)
+    map[s.len()] = out.len();
+    (out, Some(map))
 }
 
 #[cfg(test)]
@@ -334,8 +332,10 @@ mod tests {
 
     #[test]
     fn expand_tabs_shifts_ranges() {
-        let (s, e) = expand_tabs("\tab", &vec![1..3]);
+        let (s, map) = expand_tabs("\tab");
+        let map = map.unwrap();
         assert_eq!(s, "    ab");
-        assert_eq!(&s[e[0].clone()], "ab");
+        assert_eq!(&s[map[1]..map[3]], "ab");
+        assert!(expand_tabs("none").1.is_none());
     }
 }
