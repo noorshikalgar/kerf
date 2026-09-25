@@ -4,7 +4,7 @@ use super::app::Kerf;
 use super::widgets::micro;
 use crate::git::RangeMode;
 use crate::theme;
-use gpui::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, Hsla, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, Context, Div, FontWeight, Hsla, Window};
 
 impl Kerf {
     pub fn render_info(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -50,8 +50,11 @@ impl Kerf {
                     div()
                         .id("info")
                         .w(px(720.))
-                        .max_h(px(640.))
+                        .max_w(relative(0.9))
+                        .max_h(relative(0.85))
+                        // Vertical scroll only: everything inside wraps to the popup width.
                         .overflow_y_scroll()
+                        .overflow_x_hidden()
                         .flex()
                         .flex_col()
                         .gap(px(16.))
@@ -100,6 +103,7 @@ impl Kerf {
                         .child(
                             div()
                                 .p(px(12.))
+                                .overflow_x_hidden()
                                 .bg(theme::void())
                                 .border_1()
                                 .border_color(theme::line())
@@ -112,6 +116,7 @@ impl Kerf {
                         )
                         .child(
                             div()
+                                .w_full()
                                 .flex()
                                 .gap(px(12.))
                                 .child(mode_card(
@@ -176,6 +181,7 @@ fn mode_card(
 ) -> Div {
     div()
         .flex_1()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap(px(6.))
@@ -201,8 +207,8 @@ fn mode_card(
                 .gap(px(6.))
                 .text_size(theme::TEXT_CONTROL)
                 .text_color(theme::body())
-                .child(div().text_color(theme::mute()).child("•"))
-                .child(p.to_string())
+                .child(div().flex_none().text_color(theme::mute()).child("•"))
+                .child(div().flex_1().min_w_0().child(p.to_string()))
         }))
         .child(
             div()
@@ -223,5 +229,5 @@ fn example_row(label: &str, items: &[(&str, Hsla)]) -> Div {
         .border_b_1()
         .border_color(theme::line())
         .child(div().w(px(140.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(label.to_string()))
-        .children(items.iter().map(|(t, c)| div().text_size(theme::TEXT_LIST).text_color(*c).child(t.to_string())))
+        .children(items.iter().map(|(t, c)| div().flex_none().text_size(theme::TEXT_LIST).text_color(*c).child(t.to_string())))
 }

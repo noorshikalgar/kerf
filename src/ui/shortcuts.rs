@@ -4,7 +4,7 @@
 use super::app::Kerf;
 use super::widgets::micro;
 use crate::theme;
-use gpui::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, Window};
+use gpui::{div, prelude::*, px, relative, AnyElement, Context, Div, FontWeight, Window};
 
 /// (title, [(keys, action)])
 type Group = (&'static str, &'static [(&'static str, &'static str)]);
@@ -78,7 +78,7 @@ impl Kerf {
         });
         let (left, right): (Vec<_>, Vec<_>) = GROUPS.iter().enumerate().partition(|(i, _)| i % 2 == 0);
         let column = |groups: Vec<(usize, &Group)>| {
-            div().flex_1().flex().flex_col().gap(px(16.)).children(groups.into_iter().map(|(_, (title, keys))| group(title, keys)))
+            div().flex_1().min_w_0().flex().flex_col().gap(px(16.)).children(groups.into_iter().map(|(_, (title, keys))| group(title, keys)))
         };
         Some(
             div()
@@ -96,8 +96,10 @@ impl Kerf {
                     div()
                         .id("shortcuts")
                         .w(px(760.))
-                        .max_h(px(640.))
+                        .max_w(relative(0.9))
+                        .max_h(relative(0.85))
                         .overflow_y_scroll()
+                        .overflow_x_hidden()
                         .flex()
                         .flex_col()
                         .gap(px(16.))
@@ -144,6 +146,6 @@ fn group(title: &str, keys: &[(&str, &str)]) -> Div {
                 .border_b_1()
                 .border_color(theme::line())
                 .child(div().w(px(130.)).flex_none().text_size(theme::TEXT_LIST).text_color(theme::frost()).child(k.to_string()))
-                .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child(what.to_string()))
+                .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(theme::TEXT_LIST).text_color(theme::body()).child(what.to_string()))
         }))
 }
