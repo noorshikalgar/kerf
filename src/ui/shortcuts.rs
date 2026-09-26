@@ -122,6 +122,8 @@ impl Kerf {
         Some(
             div()
                 .id("shortcuts-backdrop")
+                // Modal: swallow mouse + wheel so the view behind never scrolls or reacts.
+                .occlude()
                 .absolute()
                 .top_0()
                 .left_0()

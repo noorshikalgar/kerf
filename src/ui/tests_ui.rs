@@ -473,3 +473,48 @@ fn repo_switcher_filters_and_opens_by_keyboard(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     view.update(cx, |k, _| assert!(!k.repo_menu_open));
 }
+
+/// Wheel over a modal must not scroll the diff behind it.
+#[gpui::test]
+fn popups_block_scrolling_the_view_behind(cx: &mut TestAppContext) {
+    let repo = fixture();
+    let long: String = (0..600).map(|i| format!("line {i}\n")).collect();
+    write(repo.path(), "long.txt", &long);
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-qm", "long"]);
+    let (view, cx) = open(cx, repo.path());
+    view.update(cx, |k, cx| {
+        let ix = k
+            .rows
+            .iter()
+            .position(|r| matches!(r, ListRow::File { change, .. } if k.range_data().unwrap().changes[*change].path == "long.txt"))
+            .unwrap();
+        k.select_row(ix, cx);
+    });
+    cx.run_until_parked();
+    let offset = |view: &Entity<Kerf>, cx: &mut VisualTestContext| {
+        view.update(cx, |k, _| f32::from(k.diff_scroll.0.borrow().base_handle.offset().y))
+    };
+    let wheel = |cx: &mut VisualTestContext| {
+        let area = cx.update(|window, _| window.bounds().center());
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: area,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-400.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+    };
+    // Control: without a popup, the wheel scrolls the diff.
+    let before = offset(&view, cx);
+    wheel(cx);
+    let scrolled = offset(&view, cx);
+    assert!(scrolled < before, "diff scrolls normally ({before} -> {scrolled})");
+    // With the shortcuts popup open, the same wheel must not move it.
+    view.update(cx, |k, cx| {
+        k.shortcuts_open = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    wheel(cx);
+    assert_eq!(offset(&view, cx), scrolled, "diff behind the popup must not scroll");
+}
