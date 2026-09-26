@@ -28,7 +28,7 @@
 - **Compare Files** or `kerf a.txt b.txt` — the same editable view for two files. Nothing is written to disk
 
 **Everything else**
-- Multiple windows (⌘⇧N) · start page · Black Metal dark theme · JetBrains Mono
+- Multiple windows (⌘⇧N) · start page · **4 themes**: Black Metal, Gruvbox Dark, Gruvbox Light, Everforest Light (soft, not bright white) · JetBrains Mono
 - Every shortcut in one place: click **Shortcuts** in the status bar
 
 ## Install

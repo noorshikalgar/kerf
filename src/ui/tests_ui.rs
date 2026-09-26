@@ -444,3 +444,115 @@ fn picker_opens_for_base_and_closes_with_escape(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     view.update(cx, |k, _| assert!(k.picker.is_none()));
 }
+
+#[gpui::test]
+fn repo_switcher_filters_and_opens_by_keyboard(cx: &mut TestAppContext) {
+    let (a, b) = (fixture(), fixture());
+    let (view, cx) = open(cx, a.path());
+    let b_path = b.path().canonicalize().unwrap();
+    view.update(cx, |k, cx| {
+        k.persisted.recents = vec![k.repo_path.clone().unwrap(), b_path.clone()];
+        k.open_repo_menu(cx);
+        // Preselects the first repo that isn't the current one.
+        assert_eq!(k.repo_menu_items()[k.repo_sel], super::welcome::RepoItem::Recent(b_path.clone()));
+    });
+    let b_name = b_path.file_name().unwrap().to_string_lossy().to_string();
+    cx.simulate_input(&b_name);
+    view.update(cx, |k, _| {
+        let recents =
+            k.repo_menu_items().into_iter().filter(|i| matches!(i, super::welcome::RepoItem::Recent(_))).count();
+        assert_eq!(recents, 1, "typing filters the list");
+    });
+    cx.simulate_keystrokes("enter");
+    view.update(cx, |k, _| {
+        assert!(!k.repo_menu_open);
+        assert_eq!(k.repo_path.as_deref(), Some(b_path.as_path()));
+    });
+    // Escape closes without changing anything.
+    view.update(cx, |k, cx| k.open_repo_menu(cx));
+    cx.simulate_keystrokes("escape");
+    view.update(cx, |k, _| assert!(!k.repo_menu_open));
+}
+
+/// Wheel over a modal must not scroll the diff behind it.
+#[gpui::test]
+fn popups_block_scrolling_the_view_behind(cx: &mut TestAppContext) {
+    let repo = fixture();
+    let long: String = (0..600).map(|i| format!("line {i}\n")).collect();
+    write(repo.path(), "long.txt", &long);
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-qm", "long"]);
+    let (view, cx) = open(cx, repo.path());
+    view.update(cx, |k, cx| {
+        let ix = k
+            .rows
+            .iter()
+            .position(|r| matches!(r, ListRow::File { change, .. } if k.range_data().unwrap().changes[*change].path == "long.txt"))
+            .unwrap();
+        k.select_row(ix, cx);
+    });
+    cx.run_until_parked();
+    let offset = |view: &Entity<Kerf>, cx: &mut VisualTestContext| {
+        view.update(cx, |k, _| f32::from(k.diff_scroll.0.borrow().base_handle.offset().y))
+    };
+    let wheel = |cx: &mut VisualTestContext| {
+        let area = cx.update(|window, _| window.bounds().center());
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: area,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-400.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+    };
+    // Control: without a popup, the wheel scrolls the diff.
+    let before = offset(&view, cx);
+    wheel(cx);
+    let scrolled = offset(&view, cx);
+    assert!(scrolled < before, "diff scrolls normally ({before} -> {scrolled})");
+    // With the shortcuts popup open, the same wheel must not move it.
+    view.update(cx, |k, cx| {
+        k.shortcuts_open = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    wheel(cx);
+    assert_eq!(offset(&view, cx), scrolled, "diff behind the popup must not scroll");
+}
+
+/// The sidebar highlights the file on screen — and nothing when no file is on screen.
+#[gpui::test]
+fn sidebar_selection_follows_the_open_file(cx: &mut TestAppContext) {
+    let repo = fixture();
+    let (view, cx) = open(cx, repo.path());
+    let selected_file = |k: &Kerf| match k.selected.and_then(|i| k.rows.get(i)) {
+        Some(ListRow::File { change, .. }) => Some(k.range_data().unwrap().changes[*change].path.clone()),
+        _ => None,
+    };
+    view.update(cx, |k, _| assert_eq!(selected_file(k).as_deref(), Some("docs/guide.md")));
+    // Closing the only tab: nothing on screen, nothing highlighted.
+    cx.simulate_keystrokes("secondary-w");
+    view.update(cx, |k, _| {
+        assert!(k.tabs.is_empty());
+        assert_eq!(selected_file(k), None);
+    });
+    // Open a file again, then a plain diff on top: the git file is no longer on screen.
+    cx.simulate_keystrokes("t down");
+    view.update(cx, |k, _| assert!(selected_file(k).is_some()));
+    cx.simulate_keystrokes("enter secondary-n");
+    view.update(cx, |k, _| assert_eq!(selected_file(k), None));
+    // Switching back to the git tab highlights its file again.
+    cx.simulate_keystrokes("secondary-shift-[");
+    view.update(cx, |k, _| assert_eq!(selected_file(k).as_deref(), active_path(k).as_deref()));
+}
+
+#[gpui::test]
+fn switching_theme_applies_and_is_remembered(cx: &mut TestAppContext) {
+    let (view, cx) = boot(cx, Launch::Empty);
+    view.update(cx, |k, cx| k.set_theme(crate::theme::ThemeId::GruvboxLight, cx));
+    view.update(cx, |k, _| {
+        assert_eq!(crate::theme::current(), crate::theme::ThemeId::GruvboxLight);
+        assert_eq!(k.persisted.theme.as_deref(), Some("gruvbox-light"));
+        assert!(!k.theme_menu_open);
+    });
+    view.update(cx, |k, cx| k.set_theme(crate::theme::ThemeId::BlackMetal, cx));
+}

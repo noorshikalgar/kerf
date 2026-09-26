@@ -1,9 +1,13 @@
 name: CI
 
+# Day-to-day PRs (into develop) run on macOS only — fast. Anything going to main
+# (PRs into main, pushes to main) runs the full macOS + Linux + Windows matrix.
 on:
   push:
     branches: [main, develop]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,15 +18,12 @@ env:
 
 jobs:
   check:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: "macOS", os: macos-14 }
-          - { name: "Linux", os: ubuntu-24.04 }
-          - { name: "Windows", os: windows-2022 }
+        os: ${{ fromJSON((github.base_ref == 'main' || github.ref == 'refs/heads/main') && '["macos-14","ubuntu-24.04","windows-2022"]' || '["macos-14"]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,7 +39,10 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Only long-lived branches save the cache, so PRs start from a warm develop/main cache.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
 
       - name: Format
         if: runner.os == 'macOS'
@@ -51,5 +55,5 @@ jobs:
         run: cargo test
 
       - name: Performance (release)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && (github.base_ref == 'main' || github.ref == 'refs/heads/main')
         run: cargo test --release --test perf -- --ignored --nocapture

@@ -50,15 +50,6 @@ impl Kerf {
                     }
                 })
             })
-            .child(widgets::app_icon(16.))
-            .child(
-                div()
-                    .text_size(theme::TEXT_LIST)
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(theme::bone())
-                    .child("kerf"),
-            )
-            .child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
             // Repository switcher: always reachable, from git or plain-diff mode.
             .child({
                 let has_repo = self.repo_path.is_some();
@@ -79,8 +70,11 @@ impl Kerf {
                     .tooltip(|_, cx| cx.new(|_| widgets::Tip("Switch or open a repository  ⌘O")).into())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.repo_menu_open = !this.repo_menu_open;
-                        cx.notify();
+                        if this.repo_menu_open {
+                            this.close_repo_menu(cx);
+                        } else {
+                            this.open_repo_menu(cx);
+                        }
                     }))
                     .child(if has_repo { self.repo_name.clone() } else { "Open Repository".into() })
                     .child(widgets::chevron(true, nerd))
@@ -140,6 +134,20 @@ impl Kerf {
             .child(if self.layout == crate::diff::Layout::Split { "split" } else { "unified" })
             .child(if self.ignore_ws { "ws: ignored" } else { "ws: shown" })
             .when(self.wrap, |d| d.child("wrap"))
+            .child(
+                div()
+                    .id("theme-link")
+                    .px(px(6.))
+                    .rounded(theme::RADIUS)
+                    .text_color(if self.theme_menu_open { theme::frost() } else { theme::body() })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.theme_menu_open = !this.theme_menu_open;
+                        cx.notify();
+                    }))
+                    .child(theme::current().name()),
+            )
             .child(
                 div()
                     .id("shortcuts-link")

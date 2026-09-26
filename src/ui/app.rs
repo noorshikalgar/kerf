@@ -236,6 +236,8 @@ pub enum Input {
     None,
     Filter,
     Picker,
+    /// Titlebar repository switcher search.
+    RepoMenu,
 }
 
 pub struct Kerf {
@@ -316,6 +318,9 @@ pub struct Kerf {
     pub picker: Option<Picker>,
     /// Titlebar repository switcher popover.
     pub repo_menu_open: bool,
+    pub theme_menu_open: bool,
+    pub repo_query: String,
+    pub repo_sel: usize,
     pub sidebar_open: bool,
     pub sidebar_w: f32,
     pub resizing: bool,
@@ -395,6 +400,9 @@ impl Kerf {
             editors: HashMap::new(),
             picker: None,
             repo_menu_open: false,
+            theme_menu_open: false,
+            repo_query: String::new(),
+            repo_sel: 0,
             sidebar_open: true,
             resizing: false,
             scroll_drag: None,
@@ -967,6 +975,7 @@ impl Kerf {
         self.active_tab = Some(idx);
         self.diff_scroll = self.tabs[idx].scroll.clone();
         self.load_diff(target, true, cx);
+        self.sync_selection_to_tab();
     }
 
     /// Saves the active tab's ready diff so switching back is instant.
@@ -1013,6 +1022,7 @@ impl Kerf {
                     self.active_tab = None;
                     self.diff_gen += 1;
                     self.diff = DiffState::Empty;
+                    self.sync_selection_to_tab();
                 } else {
                     // Zed/VS Code: activate the tab that slid into this slot, else the previous one.
                     self.active_tab = None;
@@ -1066,15 +1076,28 @@ impl Kerf {
     }
 
     /// Highlights the sidebar row for the active tab's file (Files tab only), without reopening.
+    /// Files tab: the highlighted row is the file shown in the active tab — and nothing when
+    /// no range file is on screen (no tabs, a plain diff, or a commit's file). Folder rows the
+    /// user selected (keyboard focus) are left alone.
     fn sync_selection_to_tab(&mut self) {
-        let Some(t) = self.active_tab.and_then(|a| self.tabs.get(a)) else { return };
-        if self.tab != Tab::Files || t.target.commit.is_some() || t.target.scratch.is_some() {
+        if self.tab != Tab::Files {
             return;
         }
-        let path = t.target.change.path.clone();
-        if let Some(ix) = self.row_for_path(&path) {
-            self.selected = Some(ix);
-            self.list_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+        let path = self
+            .active_tab
+            .and_then(|a| self.tabs.get(a))
+            .filter(|t| t.target.commit.is_none() && t.target.scratch.is_none())
+            .map(|t| t.target.change.path.clone());
+        match path.and_then(|p| self.row_for_path(&p)) {
+            Some(ix) => {
+                self.selected = Some(ix);
+                self.list_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            }
+            None => {
+                if matches!(self.selected.and_then(|i| self.rows.get(i)), Some(ListRow::File { .. })) {
+                    self.selected = None;
+                }
+            }
         }
     }
 
@@ -1398,16 +1421,20 @@ impl Kerf {
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
-        if self.info_open || self.shortcuts_open || self.repo_menu_open {
+        if self.info_open || self.shortcuts_open || self.repo_menu_open || self.theme_menu_open {
             self.info_open = false;
             self.shortcuts_open = false;
             self.repo_menu_open = false;
+            self.theme_menu_open = false;
+            if self.input == Input::RepoMenu {
+                self.input = Input::None;
+            }
             cx.notify();
             return;
         }
         match self.input {
             Input::Picker => self.picker = None,
-            Input::Filter => {}
+            Input::Filter | Input::RepoMenu => {}
             Input::None => {
                 if !self.filter.is_empty() {
                     self.filter.clear();
@@ -1431,6 +1458,7 @@ impl Kerf {
         let text = match self.input {
             Input::Picker => self.picker.as_mut().map(|p| &mut p.query),
             Input::Filter => Some(&mut self.filter),
+            Input::RepoMenu => Some(&mut self.repo_query),
             Input::None => None,
         };
         let Some(text) = text else { return };
@@ -1457,6 +1485,7 @@ impl Kerf {
                     self.selected = None;
                     self.rebuild_rows();
                 }
+                Input::RepoMenu => self.repo_sel = 0,
                 Input::None => {}
             }
             cx.notify();
@@ -1536,7 +1565,10 @@ impl Render for Kerf {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Up, _, cx| {
-                if let Some(p) = this.picker.as_mut() {
+                if this.input == Input::RepoMenu {
+                    this.repo_sel = this.repo_sel.saturating_sub(1);
+                    cx.notify();
+                } else if let Some(p) = this.picker.as_mut() {
                     p.selected = p.selected.saturating_sub(1);
                     cx.notify();
                 } else {
@@ -1545,7 +1577,10 @@ impl Render for Kerf {
             }))
             .on_action(cx.listener(|this, _: &Down, _, cx| {
                 let n = this.picker_matches().len();
-                if let Some(p) = this.picker.as_mut() {
+                if this.input == Input::RepoMenu {
+                    this.repo_sel = (this.repo_sel + 1).min(this.repo_menu_items().len().saturating_sub(1));
+                    cx.notify();
+                } else if let Some(p) = this.picker.as_mut() {
                     p.selected = (p.selected + 1).min(n.saturating_sub(1));
                     cx.notify();
                 } else {
@@ -1555,6 +1590,11 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &Left, _, cx| this.toggle_row(Some(false), cx)))
             .on_action(cx.listener(|this, _: &Right, _, cx| this.toggle_row(Some(true), cx)))
             .on_action(cx.listener(|this, _: &Confirm, _, cx| match this.input {
+                Input::RepoMenu => {
+                    if let Some(item) = this.repo_menu_items().get(this.repo_sel).cloned() {
+                        this.activate_repo_item(item, cx);
+                    }
+                }
                 Input::Picker => {
                     let sel = this.picker.as_ref().map(|p| p.selected).unwrap_or(0);
                     if let Some((item, _)) = this.picker_matches().get(sel).cloned() {
@@ -1592,6 +1632,16 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle_tab(true, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| this.cycle_tab(false, cx)))
             .on_action(cx.listener(|this, _: &NewDiff, _, cx| this.new_scratch(cx)))
+            .on_action(cx.listener(|this, _: &ThemeBlackMetal, _, cx| this.set_theme(theme::ThemeId::BlackMetal, cx)))
+            .on_action(cx.listener(|this, _: &ThemeGruvboxDark, _, cx| this.set_theme(theme::ThemeId::GruvboxDark, cx)))
+            .on_action(
+                cx.listener(|this, _: &ThemeGruvboxLight, _, cx| this.set_theme(theme::ThemeId::GruvboxLight, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ThemeEverforestLight, _, cx| {
+                    this.set_theme(theme::ThemeId::EverforestLight, cx)
+                }),
+            )
             .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
             .on_action(cx.listener(|this, _: &CompareFiles, _, cx| this.prompt_compare_files(cx)))
             .on_action(cx.listener(|this, _: &Paste, _, cx| this.paste(cx)))
@@ -1766,6 +1816,7 @@ impl Render for Kerf {
             .children(self.render_info(window, cx))
             .children(self.render_shortcuts(window, cx))
             .children(self.render_repo_menu(cx))
+            .children(self.render_theme_menu(cx))
     }
 }
 
