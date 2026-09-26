@@ -318,6 +318,7 @@ pub struct Kerf {
     pub picker: Option<Picker>,
     /// Titlebar repository switcher popover.
     pub repo_menu_open: bool,
+    pub theme_menu_open: bool,
     pub repo_query: String,
     pub repo_sel: usize,
     pub sidebar_open: bool,
@@ -399,6 +400,7 @@ impl Kerf {
             editors: HashMap::new(),
             picker: None,
             repo_menu_open: false,
+            theme_menu_open: false,
             repo_query: String::new(),
             repo_sel: 0,
             sidebar_open: true,
@@ -1419,10 +1421,11 @@ impl Kerf {
     }
 
     fn close_input(&mut self, cx: &mut Context<Self>) {
-        if self.info_open || self.shortcuts_open || self.repo_menu_open {
+        if self.info_open || self.shortcuts_open || self.repo_menu_open || self.theme_menu_open {
             self.info_open = false;
             self.shortcuts_open = false;
             self.repo_menu_open = false;
+            self.theme_menu_open = false;
             if self.input == Input::RepoMenu {
                 self.input = Input::None;
             }
@@ -1629,6 +1632,16 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle_tab(true, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| this.cycle_tab(false, cx)))
             .on_action(cx.listener(|this, _: &NewDiff, _, cx| this.new_scratch(cx)))
+            .on_action(cx.listener(|this, _: &ThemeBlackMetal, _, cx| this.set_theme(theme::ThemeId::BlackMetal, cx)))
+            .on_action(cx.listener(|this, _: &ThemeGruvboxDark, _, cx| this.set_theme(theme::ThemeId::GruvboxDark, cx)))
+            .on_action(
+                cx.listener(|this, _: &ThemeGruvboxLight, _, cx| this.set_theme(theme::ThemeId::GruvboxLight, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ThemeEverforestLight, _, cx| {
+                    this.set_theme(theme::ThemeId::EverforestLight, cx)
+                }),
+            )
             .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
             .on_action(cx.listener(|this, _: &CompareFiles, _, cx| this.prompt_compare_files(cx)))
             .on_action(cx.listener(|this, _: &Paste, _, cx| this.paste(cx)))
@@ -1803,6 +1816,7 @@ impl Render for Kerf {
             .children(self.render_info(window, cx))
             .children(self.render_shortcuts(window, cx))
             .children(self.render_repo_menu(cx))
+            .children(self.render_theme_menu(cx))
     }
 }
 

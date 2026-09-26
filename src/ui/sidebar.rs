@@ -136,6 +136,20 @@ impl Kerf {
             .when(self.wrap, |d| d.child("wrap"))
             .child(
                 div()
+                    .id("theme-link")
+                    .px(px(6.))
+                    .rounded(theme::RADIUS)
+                    .text_color(if self.theme_menu_open { theme::frost() } else { theme::body() })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.theme_menu_open = !this.theme_menu_open;
+                        cx.notify();
+                    }))
+                    .child(theme::current().name()),
+            )
+            .child(
+                div()
                     .id("shortcuts-link")
                     .px(px(6.))
                     .rounded(theme::RADIUS)

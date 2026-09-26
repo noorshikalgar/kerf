@@ -544,3 +544,15 @@ fn sidebar_selection_follows_the_open_file(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("secondary-shift-[");
     view.update(cx, |k, _| assert_eq!(selected_file(k).as_deref(), active_path(k).as_deref()));
 }
+
+#[gpui::test]
+fn switching_theme_applies_and_is_remembered(cx: &mut TestAppContext) {
+    let (view, cx) = boot(cx, Launch::Empty);
+    view.update(cx, |k, cx| k.set_theme(crate::theme::ThemeId::GruvboxLight, cx));
+    view.update(cx, |k, _| {
+        assert_eq!(crate::theme::current(), crate::theme::ThemeId::GruvboxLight);
+        assert_eq!(k.persisted.theme.as_deref(), Some("gruvbox-light"));
+        assert!(!k.theme_menu_open);
+    });
+    view.update(cx, |k, cx| k.set_theme(crate::theme::ThemeId::BlackMetal, cx));
+}

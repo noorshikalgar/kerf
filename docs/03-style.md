@@ -21,6 +21,19 @@ Mood: corpse-paint monochrome. Pure black void, bone-white type, ash greys, **on
 
 No other sizes. Section labels and tab titles are **Title Case** (`Repository`, `Base`, `Compare`, `Files`, `Commits`). Uppercase is reserved for tiny badges only (`BIN`, `GEN`, `MERGE`).
 
+## 1b. Themes
+
+Four themes share every token name below; `src/theme.rs` holds the palettes.
+
+| Theme | Kind | Canvas | Character |
+|---|---|---|---|
+| **Black Metal** (default) | Dark | `#000000` | Pure black, bone type, one frost accent |
+| **Gruvbox Dark** | Dark | `#1d2021` | Warm retro, hard contrast |
+| **Gruvbox Light** | Light | `#f2e5bc` | Soft cream — not bright white |
+| **Everforest Light** | Light | `#efebd4` | Muted sage-cream, low glare |
+
+Light palettes keep the upstream hues but darken text, added / removed and comment tokens until they pass WCAG AA; `theme::tests::every_theme_meets_contrast` fails the build if any theme drops below. Switch from the status bar (**theme name**) or **View → Theme**; saved per user, applied to every window. The app icon always uses Black Metal colours.
+
 ## 2. Colour tokens
 
 All values measured for WCAG contrast on their real surface (see §6).

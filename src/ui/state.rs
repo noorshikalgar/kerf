@@ -23,6 +23,9 @@ pub struct Persisted {
     pub sidebar_w: Option<f32>,
     #[serde(default)]
     pub range_collapsed: bool,
+    /// Theme key (`theme::ThemeId::key`).
+    #[serde(default)]
+    pub theme: Option<String>,
     #[serde(default)]
     pub wrap: bool,
     #[serde(default)]

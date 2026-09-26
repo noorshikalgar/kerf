@@ -10,6 +10,7 @@ mod scrollbar;
 mod shortcuts;
 mod sidebar;
 mod state;
+mod themes;
 mod welcome;
 mod widgets;
 
@@ -71,6 +72,10 @@ actions!(
         Paste,
         ShowShortcuts,
         NewWindow,
+        ThemeBlackMetal,
+        ThemeGruvboxDark,
+        ThemeGruvboxLight,
+        ThemeEverforestLight,
         CloseWindow,
         FocusFilter,
         PageUp,
@@ -150,6 +155,10 @@ fn app_bindings() -> Vec<KeyBinding> {
 }
 
 pub fn init(cx: &mut App) {
+    // Apply the saved theme before any window renders.
+    if let Some(t) = state::Persisted::load().theme.as_deref().and_then(crate::theme::ThemeId::from_key) {
+        crate::theme::set_current(t);
+    }
     editor::init(cx);
     cx.bind_keys(app_bindings());
     cx.on_action(|_: &Quit, cx| cx.quit());
@@ -197,6 +206,11 @@ fn set_menus(cx: &mut App) {
                 MenuItem::action("Split / Unified", ToggleSplit),
                 MenuItem::action("Wrap Lines", ToggleWrap),
                 MenuItem::action("Ignore Whitespace", ToggleWhitespace),
+                MenuItem::separator(),
+                MenuItem::action("Theme: Black Metal", ThemeBlackMetal),
+                MenuItem::action("Theme: Gruvbox Dark", ThemeGruvboxDark),
+                MenuItem::action("Theme: Gruvbox Light", ThemeGruvboxLight),
+                MenuItem::action("Theme: Everforest Light", ThemeEverforestLight),
                 MenuItem::separator(),
                 MenuItem::action("PR Merge / Compare View", ToggleMode),
                 MenuItem::action("How the Views Differ", ShowInfo),
