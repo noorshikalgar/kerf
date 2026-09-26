@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Kerf
+GenericName=Diff Tool
+Comment=The cut between two branches — or any two texts
+Exec=kerf %F
+Icon=kerf
+Terminal=false
+Categories=Development;RevisionControl;
+StartupWMClass=kerf

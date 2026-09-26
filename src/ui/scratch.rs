@@ -37,9 +37,11 @@ pub struct EditorPair {
 }
 
 pub fn tilde(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => format!("~{}", &path[home.len()..]),
-        _ => path.to_string(),
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    if !home.is_empty() && path.starts_with(&home) {
+        format!("~{}", &path[home.len()..])
+    } else {
+        path.to_string()
     }
 }
 
@@ -138,8 +140,8 @@ impl Kerf {
         let scroll = UniformListScrollHandle::new();
         let font = self.font.clone();
         let (f2, s2) = (font.clone(), scroll.clone());
-        let left = cx.new(|cx| Editor::new(&lt, font, PLACEHOLDER, scroll.clone(), true, cx));
-        let right = cx.new(|cx| Editor::new(&rt, f2, PLACEHOLDER, s2, false, cx));
+        let left = cx.new(|cx| Editor::new(&lt, font, &super::widgets::keys(PLACEHOLDER), scroll.clone(), true, cx));
+        let right = cx.new(|cx| Editor::new(&rt, f2, &super::widgets::keys(PLACEHOLDER), s2, false, cx));
         let source = |side: &Option<ScratchSide>, e: &Entity<Editor>, cx: &App| {
             side.as_ref().map(|s| (s.label.clone(), e.read(cx).buffer.version))
         };
@@ -246,7 +248,7 @@ impl Kerf {
     fn refresh_scratch_title(&mut self, id: u64, cx: &App) {
         let name = |this: &Self, side: Side| {
             let (label, _) = this.side_label(id, side, cx);
-            (!label.is_empty()).then(|| label.rsplit('/').next().unwrap_or(&label).to_string())
+            (!label.is_empty()).then(|| label.rsplit(['/', '\\']).next().unwrap_or(&label).to_string())
         };
         let title = match (name(self, Side::Left), name(self, Side::Right)) {
             (Some(l), Some(r)) => format!("{l} ↔ {r}"),

@@ -33,23 +33,37 @@
 
 ## Install
 
-Download the latest **`Kerf-<version>-macos-universal.zip`** from [Releases](https://github.com/noorshikalgar/kerf/releases), unzip, and move **Kerf.app** to Applications.
+Download from [Releases](https://github.com/noorshikalgar/kerf/releases).
 
-The app is ad-hoc signed, not notarized, so macOS will warn on first launch. Either right-click → **Open**, or:
+**macOS** (Apple Silicon + Intel): `Kerf-<version>-macos-universal.zip` → unzip → move **Kerf.app** to Applications. The app is ad-hoc signed, not notarized, so the first launch needs right-click → **Open**, or:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Kerf.app
 ```
 
-To use `kerf` from a terminal:
+Optional CLI:
 
 ```bash
 ln -sf /Applications/Kerf.app/Contents/MacOS/kerf /usr/local/bin/kerf
 ```
 
+**Linux** (x86_64, experimental): `Kerf-<version>-linux-x86_64.tar.gz` → installs to `~/.local` (binary, desktop entry, icons):
+
+```bash
+tar xzf Kerf-*-linux-x86_64.tar.gz && ./Kerf-*/install.sh
+```
+
+**Windows** (x86_64, experimental): `Kerf-<version>-windows-x86_64.zip` → unzip → run `kerf.exe`. Not code-signed yet: SmartScreen may warn → **More info → Run anyway**.
+
+Linux and Windows builds pass the full automated test suite on CI but haven't been visually checked yet — issues welcome. Shortcuts use **Ctrl** where macOS uses **⌘**, and follow each platform's editing conventions (e.g. Ctrl+←/→ by word, Home/End).
+
 ## Build from source
 
-Requires Rust 1.85+ on macOS 12+. GPUI is built with `runtime_shaders`, so the Xcode Metal toolchain is not needed.
+Requires Rust 1.85+. macOS 12+: GPUI is built with `runtime_shaders`, so the Xcode Metal toolchain is not needed. Linux needs a few system libraries:
+
+```bash
+sudo apt install gcc g++ pkg-config libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libvulkan-dev libzstd-dev libssl-dev
+```
 
 ```bash
 cargo run --release -- ~/path/to/repo
@@ -59,11 +73,7 @@ cargo run --release -- ~/path/to/repo
 cargo run --release -- old.txt new.txt
 ```
 
-Build `dist/Kerf.app` (with icon) and a zip:
-
-```bash
-scripts/bundle-macos.sh
-```
+Package like the release does: `scripts/bundle-macos.sh` (Kerf.app + zip), `scripts/bundle-linux.sh` (tar.gz), `scripts/bundle-windows.ps1` (zip).
 
 ## Tests
 

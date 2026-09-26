@@ -134,5 +134,11 @@ pub const FONT_CANDIDATES: &[&str] = &[
     "JetBrainsMono Nerd Font Mono",
     "JetBrainsMono Nerd Font",
     "JetBrainsMonoNL Nerd Font Mono",
+    // Fallbacks by platform.
     "Menlo",
+    "Cascadia Mono",
+    "Consolas",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
 ];
