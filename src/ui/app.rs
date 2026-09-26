@@ -236,6 +236,8 @@ pub enum Input {
     None,
     Filter,
     Picker,
+    /// Titlebar repository switcher search.
+    RepoMenu,
 }
 
 pub struct Kerf {
@@ -316,6 +318,8 @@ pub struct Kerf {
     pub picker: Option<Picker>,
     /// Titlebar repository switcher popover.
     pub repo_menu_open: bool,
+    pub repo_query: String,
+    pub repo_sel: usize,
     pub sidebar_open: bool,
     pub sidebar_w: f32,
     pub resizing: bool,
@@ -395,6 +399,8 @@ impl Kerf {
             editors: HashMap::new(),
             picker: None,
             repo_menu_open: false,
+            repo_query: String::new(),
+            repo_sel: 0,
             sidebar_open: true,
             resizing: false,
             scroll_drag: None,
@@ -1402,12 +1408,15 @@ impl Kerf {
             self.info_open = false;
             self.shortcuts_open = false;
             self.repo_menu_open = false;
+            if self.input == Input::RepoMenu {
+                self.input = Input::None;
+            }
             cx.notify();
             return;
         }
         match self.input {
             Input::Picker => self.picker = None,
-            Input::Filter => {}
+            Input::Filter | Input::RepoMenu => {}
             Input::None => {
                 if !self.filter.is_empty() {
                     self.filter.clear();
@@ -1431,6 +1440,7 @@ impl Kerf {
         let text = match self.input {
             Input::Picker => self.picker.as_mut().map(|p| &mut p.query),
             Input::Filter => Some(&mut self.filter),
+            Input::RepoMenu => Some(&mut self.repo_query),
             Input::None => None,
         };
         let Some(text) = text else { return };
@@ -1457,6 +1467,7 @@ impl Kerf {
                     self.selected = None;
                     self.rebuild_rows();
                 }
+                Input::RepoMenu => self.repo_sel = 0,
                 Input::None => {}
             }
             cx.notify();
@@ -1536,7 +1547,10 @@ impl Render for Kerf {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Up, _, cx| {
-                if let Some(p) = this.picker.as_mut() {
+                if this.input == Input::RepoMenu {
+                    this.repo_sel = this.repo_sel.saturating_sub(1);
+                    cx.notify();
+                } else if let Some(p) = this.picker.as_mut() {
                     p.selected = p.selected.saturating_sub(1);
                     cx.notify();
                 } else {
@@ -1545,7 +1559,10 @@ impl Render for Kerf {
             }))
             .on_action(cx.listener(|this, _: &Down, _, cx| {
                 let n = this.picker_matches().len();
-                if let Some(p) = this.picker.as_mut() {
+                if this.input == Input::RepoMenu {
+                    this.repo_sel = (this.repo_sel + 1).min(this.repo_menu_items().len().saturating_sub(1));
+                    cx.notify();
+                } else if let Some(p) = this.picker.as_mut() {
                     p.selected = (p.selected + 1).min(n.saturating_sub(1));
                     cx.notify();
                 } else {
@@ -1555,6 +1572,11 @@ impl Render for Kerf {
             .on_action(cx.listener(|this, _: &Left, _, cx| this.toggle_row(Some(false), cx)))
             .on_action(cx.listener(|this, _: &Right, _, cx| this.toggle_row(Some(true), cx)))
             .on_action(cx.listener(|this, _: &Confirm, _, cx| match this.input {
+                Input::RepoMenu => {
+                    if let Some(item) = this.repo_menu_items().get(this.repo_sel).cloned() {
+                        this.activate_repo_item(item, cx);
+                    }
+                }
                 Input::Picker => {
                     let sel = this.picker.as_ref().map(|p| p.selected).unwrap_or(0);
                     if let Some((item, _)) = this.picker_matches().get(sel).cloned() {

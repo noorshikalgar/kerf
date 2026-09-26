@@ -444,3 +444,32 @@ fn picker_opens_for_base_and_closes_with_escape(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     view.update(cx, |k, _| assert!(k.picker.is_none()));
 }
+
+#[gpui::test]
+fn repo_switcher_filters_and_opens_by_keyboard(cx: &mut TestAppContext) {
+    let (a, b) = (fixture(), fixture());
+    let (view, cx) = open(cx, a.path());
+    let b_path = b.path().canonicalize().unwrap();
+    view.update(cx, |k, cx| {
+        k.persisted.recents = vec![k.repo_path.clone().unwrap(), b_path.clone()];
+        k.open_repo_menu(cx);
+        // Preselects the first repo that isn't the current one.
+        assert_eq!(k.repo_menu_items()[k.repo_sel], super::welcome::RepoItem::Recent(b_path.clone()));
+    });
+    let b_name = b_path.file_name().unwrap().to_string_lossy().to_string();
+    cx.simulate_input(&b_name);
+    view.update(cx, |k, _| {
+        let recents =
+            k.repo_menu_items().into_iter().filter(|i| matches!(i, super::welcome::RepoItem::Recent(_))).count();
+        assert_eq!(recents, 1, "typing filters the list");
+    });
+    cx.simulate_keystrokes("enter");
+    view.update(cx, |k, _| {
+        assert!(!k.repo_menu_open);
+        assert_eq!(k.repo_path.as_deref(), Some(b_path.as_path()));
+    });
+    // Escape closes without changing anything.
+    view.update(cx, |k, cx| k.open_repo_menu(cx));
+    cx.simulate_keystrokes("escape");
+    view.update(cx, |k, _| assert!(!k.repo_menu_open));
+}

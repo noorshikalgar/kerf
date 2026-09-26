@@ -282,6 +282,12 @@ impl Kerf {
                 cx.notify();
                 return;
             }
+            Input::RepoMenu => {
+                self.repo_query.push_str(text.lines().next().unwrap_or("").trim());
+                self.repo_sel = 0;
+                cx.notify();
+                return;
+            }
             Input::None => {}
         }
         match self.active_scratch_id() {
