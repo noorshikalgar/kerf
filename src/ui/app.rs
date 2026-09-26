@@ -973,6 +973,7 @@ impl Kerf {
         self.active_tab = Some(idx);
         self.diff_scroll = self.tabs[idx].scroll.clone();
         self.load_diff(target, true, cx);
+        self.sync_selection_to_tab();
     }
 
     /// Saves the active tab's ready diff so switching back is instant.
@@ -1019,6 +1020,7 @@ impl Kerf {
                     self.active_tab = None;
                     self.diff_gen += 1;
                     self.diff = DiffState::Empty;
+                    self.sync_selection_to_tab();
                 } else {
                     // Zed/VS Code: activate the tab that slid into this slot, else the previous one.
                     self.active_tab = None;
@@ -1072,15 +1074,28 @@ impl Kerf {
     }
 
     /// Highlights the sidebar row for the active tab's file (Files tab only), without reopening.
+    /// Files tab: the highlighted row is the file shown in the active tab — and nothing when
+    /// no range file is on screen (no tabs, a plain diff, or a commit's file). Folder rows the
+    /// user selected (keyboard focus) are left alone.
     fn sync_selection_to_tab(&mut self) {
-        let Some(t) = self.active_tab.and_then(|a| self.tabs.get(a)) else { return };
-        if self.tab != Tab::Files || t.target.commit.is_some() || t.target.scratch.is_some() {
+        if self.tab != Tab::Files {
             return;
         }
-        let path = t.target.change.path.clone();
-        if let Some(ix) = self.row_for_path(&path) {
-            self.selected = Some(ix);
-            self.list_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+        let path = self
+            .active_tab
+            .and_then(|a| self.tabs.get(a))
+            .filter(|t| t.target.commit.is_none() && t.target.scratch.is_none())
+            .map(|t| t.target.change.path.clone());
+        match path.and_then(|p| self.row_for_path(&p)) {
+            Some(ix) => {
+                self.selected = Some(ix);
+                self.list_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            }
+            None => {
+                if matches!(self.selected.and_then(|i| self.rows.get(i)), Some(ListRow::File { .. })) {
+                    self.selected = None;
+                }
+            }
         }
     }
 

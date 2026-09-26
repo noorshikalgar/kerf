@@ -518,3 +518,29 @@ fn popups_block_scrolling_the_view_behind(cx: &mut TestAppContext) {
     wheel(cx);
     assert_eq!(offset(&view, cx), scrolled, "diff behind the popup must not scroll");
 }
+
+/// The sidebar highlights the file on screen — and nothing when no file is on screen.
+#[gpui::test]
+fn sidebar_selection_follows_the_open_file(cx: &mut TestAppContext) {
+    let repo = fixture();
+    let (view, cx) = open(cx, repo.path());
+    let selected_file = |k: &Kerf| match k.selected.and_then(|i| k.rows.get(i)) {
+        Some(ListRow::File { change, .. }) => Some(k.range_data().unwrap().changes[*change].path.clone()),
+        _ => None,
+    };
+    view.update(cx, |k, _| assert_eq!(selected_file(k).as_deref(), Some("docs/guide.md")));
+    // Closing the only tab: nothing on screen, nothing highlighted.
+    cx.simulate_keystrokes("secondary-w");
+    view.update(cx, |k, _| {
+        assert!(k.tabs.is_empty());
+        assert_eq!(selected_file(k), None);
+    });
+    // Open a file again, then a plain diff on top: the git file is no longer on screen.
+    cx.simulate_keystrokes("t down");
+    view.update(cx, |k, _| assert!(selected_file(k).is_some()));
+    cx.simulate_keystrokes("enter secondary-n");
+    view.update(cx, |k, _| assert_eq!(selected_file(k), None));
+    // Switching back to the git tab highlights its file again.
+    cx.simulate_keystrokes("secondary-shift-[");
+    view.update(cx, |k, _| assert_eq!(selected_file(k).as_deref(), active_path(k).as_deref()));
+}
