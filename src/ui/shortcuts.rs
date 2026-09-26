@@ -80,6 +80,97 @@ const GROUPS: &[Group] = &[
     ),
 ];
 
+/// Linux / Windows rows that differ from the Mac ones beyond symbol translation:
+/// (Mac label as written above, PC label, PC description).
+const PC_OVERRIDES: &[(&str, &str, &str)] = &[
+    ("⌘Z  ⌘⇧Z", "Ctrl+Z  Ctrl+Y", "Undo / redo in editor"),
+    ("⌘⌫  ⌘⌦", "Ctrl+Backspace  Ctrl+Delete", "Delete word left / right"),
+    ("⌥← ⌥→", "Ctrl+← Ctrl+→", "Move by word (Shift selects)"),
+    ("⌘⇧]  ⌃Tab", "Ctrl+Tab", "Next tab"),
+    ("⌘⇧[  ⌃⇧Tab", "Ctrl+Shift+Tab", "Previous tab"),
+];
+
+/// The label and description to show for a row on this platform.
+fn row(mac: &str, what: &str) -> (String, String) {
+    if !cfg!(target_os = "macos") {
+        if let Some((_, pc, desc)) = PC_OVERRIDES.iter().find(|(m, _, _)| *m == mac) {
+            return (pc.to_string(), desc.to_string());
+        }
+    }
+    (super::widgets::keys(mac), what.to_string())
+}
+
+/// Splits a shortcut label into alternatives → key sequences → keys, for keycap rendering.
+/// "⌘Z  ⌘⇧Z" → [[["⌘","Z"]], [["⌘","⇧","Z"]]]; "↑ ↓  k j" → [[["↑"],["↓"]], [["k"],["j"]]];
+/// "Ctrl+Shift+N" → [[["Ctrl","Shift","N"]]].
+pub fn keycaps(label: &str) -> Vec<Vec<Vec<String>>> {
+    const MODS: [char; 4] = ['⌘', '⇧', '⌥', '⌃'];
+    label
+        .split("  ")
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(|alt| {
+            alt.split(' ')
+                .filter(|c| !c.is_empty())
+                .map(|combo| {
+                    if combo.contains('+') && combo.len() > 1 {
+                        return combo.split('+').map(str::to_string).collect();
+                    }
+                    let mut keys: Vec<String> = Vec::new();
+                    let mut rest = String::new();
+                    for ch in combo.chars() {
+                        if MODS.contains(&ch) && rest.is_empty() {
+                            keys.push(ch.to_string());
+                        } else {
+                            rest.push(ch);
+                        }
+                    }
+                    if !rest.is_empty() {
+                        keys.push(rest);
+                    }
+                    keys
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn keycap(key: &str) -> Div {
+    div()
+        .h(px(22.))
+        .min_w(px(22.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .bg(theme::slate())
+        .border_1()
+        .border_b_2()
+        .border_color(theme::line_hi())
+        .text_size(theme::TEXT_CONTROL)
+        .text_color(theme::bone())
+        .child(key.to_string())
+}
+
+/// Keycaps for one label: keys in a chord sit close, separate keys a little apart,
+/// alternatives are divided by a faint slash.
+fn keys_view(label: &str) -> Div {
+    let alts = keycaps(label);
+    let n = alts.len();
+    div().flex().items_center().gap(px(8.)).children(alts.into_iter().enumerate().flat_map(move |(i, alt)| {
+        let group = div().flex().items_center().gap(px(6.)).children(
+            alt.into_iter()
+                .map(|combo| div().flex().items_center().gap(px(3.)).children(combo.iter().map(|k| keycap(k)))),
+        );
+        let mut v = vec![group.into_any_element()];
+        if i + 1 < n {
+            v.push(div().text_size(theme::TEXT_CONTROL).text_color(theme::faint()).child("/").into_any_element());
+        }
+        v
+    }))
+}
+
 impl Kerf {
     pub fn render_shortcuts(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.shortcuts_open {
@@ -102,6 +193,8 @@ impl Kerf {
         Some(
             div()
                 .id("shortcuts-backdrop")
+                // Modal: swallow mouse + wheel so the view behind never scrolls or reacts.
+                .occlude()
                 .absolute()
                 .top_0()
                 .left_0()
@@ -114,7 +207,7 @@ impl Kerf {
                 .child(
                     div()
                         .id("shortcuts")
-                        .w(px(760.))
+                        .w(px(860.))
                         .max_w(relative(0.9))
                         .max_h(relative(0.85))
                         .overflow_y_scroll()
@@ -158,21 +251,15 @@ impl Kerf {
 fn group(title: &str, keys: &[(&str, &str)]) -> Div {
     div().flex().flex_col().gap(px(2.)).child(micro(title.to_string()).mb(px(4.))).children(keys.iter().map(
         |(k, what)| {
+            let (k, what) = row(k, what);
             div()
-                .h(px(26.))
+                .min_h(px(34.))
                 .flex()
                 .items_center()
                 .gap(px(12.))
                 .border_b_1()
                 .border_color(theme::line())
-                .child(
-                    div()
-                        .w(px(130.))
-                        .flex_none()
-                        .text_size(theme::TEXT_LIST)
-                        .text_color(theme::frost())
-                        .child(k.to_string()),
-                )
+                .child(div().w(px(210.)).flex_none().child(keys_view(&k)))
                 .child(
                     div()
                         .flex_1()
@@ -186,4 +273,27 @@ fn group(title: &str, keys: &[(&str, &str)]) -> Div {
                 )
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keycaps;
+
+    fn caps(l: &str) -> Vec<Vec<Vec<&'static str>>> {
+        keycaps(l)
+            .into_iter()
+            .map(|a| a.into_iter().map(|c| c.into_iter().map(|k| &*Box::leak(k.into_boxed_str())).collect()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn chords_sequences_and_alternatives() {
+        assert_eq!(caps("⌘⇧N"), vec![vec![vec!["⌘", "⇧", "N"]]]);
+        assert_eq!(caps("⌘Z  ⌘⇧Z"), vec![vec![vec!["⌘", "Z"]], vec![vec!["⌘", "⇧", "Z"]]]);
+        assert_eq!(caps("↑ ↓  k j"), vec![vec![vec!["↑"], vec!["↓"]], vec![vec!["k"], vec!["j"]]]);
+        assert_eq!(caps("⇧⌥↑ ⇧⌥↓"), vec![vec![vec!["⇧", "⌥", "↑"], vec!["⇧", "⌥", "↓"]]]);
+        assert_eq!(caps("Ctrl+Shift+N"), vec![vec![vec!["Ctrl", "Shift", "N"]]]);
+        assert_eq!(caps("space  ⇧space"), vec![vec![vec!["space"]], vec![vec!["⇧", "space"]]]);
+        assert_eq!(caps("Esc"), vec![vec![vec!["Esc"]]]);
+    }
 }

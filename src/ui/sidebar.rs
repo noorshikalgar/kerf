@@ -15,7 +15,12 @@ impl Kerf {
         self.sidebar_w < theme::SIDEBAR_COMPACT
     }
 
-    pub fn render_titlebar(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn render_titlebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mac = cfg!(target_os = "macos");
+        // Client-side decorations (Linux compositors without server decorations): we are the
+        // titlebar, so draw window controls and handle dragging ourselves.
+        let client_decorated = !mac && matches!(window.window_decorations(), gpui::Decorations::Client { .. });
+        let draggable = mac || client_decorated;
         let range = match (&self.base, &self.compare) {
             (Some(b), Some(c)) => format!("{} … {}", self.display_ref(b), self.display_ref(c)),
             _ => String::new(),
@@ -26,28 +31,25 @@ impl Kerf {
             .flex_none()
             .flex()
             .items_center()
-            .pl(px(80.))
+            .pl(px(if mac { 80. } else { 12. }))
             .pr(px(12.))
             .gap(px(8.))
             .bg(theme::abyss())
             .border_b_1()
             .border_color(theme::line())
-            .on_mouse_down(MouseButton::Left, |ev, window, _| {
-                if ev.click_count == 2 {
-                    window.titlebar_double_click();
-                } else {
-                    window.start_window_move();
-                }
+            .when(draggable, |d| {
+                d.on_mouse_down(MouseButton::Left, move |ev, window, _| {
+                    if ev.click_count == 2 {
+                        if mac {
+                            window.titlebar_double_click();
+                        } else {
+                            window.zoom_window();
+                        }
+                    } else {
+                        window.start_window_move();
+                    }
+                })
             })
-            .child(widgets::app_icon(16.))
-            .child(
-                div()
-                    .text_size(theme::TEXT_LIST)
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(theme::bone())
-                    .child("kerf"),
-            )
-            .child(div().text_size(theme::TEXT_LIST).text_color(theme::faint()).child("/"))
             // Repository switcher: always reachable, from git or plain-diff mode.
             .child({
                 let has_repo = self.repo_path.is_some();
@@ -68,8 +70,11 @@ impl Kerf {
                     .tooltip(|_, cx| cx.new(|_| widgets::Tip("Switch or open a repository  ⌘O")).into())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.repo_menu_open = !this.repo_menu_open;
-                        cx.notify();
+                        if this.repo_menu_open {
+                            this.close_repo_menu(cx);
+                        } else {
+                            this.open_repo_menu(cx);
+                        }
                     }))
                     .child(if has_repo { self.repo_name.clone() } else { "Open Repository".into() })
                     .child(widgets::chevron(true, nerd))
@@ -92,6 +97,7 @@ impl Kerf {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, _, cx| this.prompt_compare_files(cx))),
             )
+            .when(client_decorated, |d| d.child(window_controls(window)))
     }
 
     pub fn render_status(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -128,6 +134,20 @@ impl Kerf {
             .child(if self.layout == crate::diff::Layout::Split { "split" } else { "unified" })
             .child(if self.ignore_ws { "ws: ignored" } else { "ws: shown" })
             .when(self.wrap, |d| d.child("wrap"))
+            .child(
+                div()
+                    .id("theme-link")
+                    .px(px(6.))
+                    .rounded(theme::RADIUS)
+                    .text_color(if self.theme_menu_open { theme::frost() } else { theme::body() })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::ash()).text_color(theme::bone()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.theme_menu_open = !this.theme_menu_open;
+                        cx.notify();
+                    }))
+                    .child(theme::current().name()),
+            )
             .child(
                 div()
                     .id("shortcuts-link")
@@ -1108,4 +1128,40 @@ fn ratio_bar(add: u64, del: u64) -> impl IntoElement {
         };
         div().w(px(7.)).h(px(7.)).rounded(px(1.)).bg(color)
     }))
+}
+
+/// Minimise / maximise / close, for Linux windows without server-side decorations.
+fn window_controls(window: &Window) -> impl IntoElement {
+    let button = |id: &'static str, glyph: &'static str, danger: bool| {
+        div()
+            .id(id)
+            .w(px(34.))
+            .h(px(26.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(theme::RADIUS)
+            .text_size(theme::TEXT_LIST)
+            .text_color(theme::body())
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .hover(move |s| {
+                if danger {
+                    s.bg(theme::del_emph()).text_color(theme::bone())
+                } else {
+                    s.bg(theme::ash()).text_color(theme::bone())
+                }
+            })
+            .child(glyph)
+    };
+    div()
+        .flex()
+        .gap(px(2.))
+        .ml(px(8.))
+        .child(button("win-min", "–", false).on_click(|_, window, _| window.minimize_window()))
+        .child(
+            button("win-max", if window.is_maximized() { "❐" } else { "□" }, false)
+                .on_click(|_, window, _| window.zoom_window()),
+        )
+        .child(button("win-close", "✕", true).on_click(|_, window, _| window.remove_window()))
 }

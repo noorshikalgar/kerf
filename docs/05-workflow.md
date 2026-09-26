@@ -9,7 +9,7 @@
 
 ## CI / releases
 
-- **CI** (`.github/workflows/ci.yml`) on every PR and on pushes to `main` / `develop`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, release perf tests. macOS runner (Apple Silicon).
-- **Release** (`.github/workflows/release.yml`): push a tag `vX.Y.Z` that matches `Cargo.toml` → tests, universal `Kerf.app` (arm64 + x86_64 via `lipo`, ad-hoc signed), zip + `SHA256SUMS.txt`, published to GitHub Releases with install notes. `workflow_dispatch` builds the same zip as a downloadable artifact without releasing.
+- **CI** (`.github/workflows/ci.yml`): PRs into `develop` run **macOS only** (fmt, clippy, tests — a few minutes). PRs into `main` and pushes to `main` run **macOS + Linux + Windows** plus release perf tests. Docs / Markdown-only changes skip CI. Only `develop` / `main` save the build cache, so PRs start warm.
+- **Release** (`.github/workflows/release.yml`): push a tag `vX.Y.Z` that matches `Cargo.toml` → per-platform tests and packages — universal `Kerf.app` zip (macOS), `tar.gz` with installer + desktop entry (Linux), `zip` with icon-embedded `kerf.exe` (Windows) — then one job publishes them with `SHA256SUMS.txt` and install notes. `workflow_dispatch` builds the artifacts without releasing.
 - To cut a release: bump `version` in `Cargo.toml` → PR → merge to `main` → `git tag v0.2.0 && git push origin v0.2.0`.
-- Not yet: notarization (needs an Apple Developer ID), Linux/Windows builds.
+- Not yet: macOS notarization (Apple Developer ID), Windows code signing, ARM Linux/Windows builds.

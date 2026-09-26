@@ -10,6 +10,7 @@ mod scrollbar;
 mod shortcuts;
 mod sidebar;
 mod state;
+mod themes;
 mod welcome;
 mod widgets;
 
@@ -71,6 +72,10 @@ actions!(
         Paste,
         ShowShortcuts,
         NewWindow,
+        ThemeBlackMetal,
+        ThemeGruvboxDark,
+        ThemeGruvboxLight,
+        ThemeEverforestLight,
         CloseWindow,
         FocusFilter,
         PageUp,
@@ -92,28 +97,28 @@ const LETTERS: &str = "Kerf && !KerfEditor";
 /// All app-level key bindings.
 fn app_bindings() -> Vec<KeyBinding> {
     vec![
-        KeyBinding::new("cmd-o", OpenRepo, Some(ROOT)),
-        KeyBinding::new("cmd-r", Refresh, Some(ROOT)),
-        KeyBinding::new("cmd-1", PickBase, Some(ROOT)),
-        KeyBinding::new("cmd-2", PickCompare, Some(ROOT)),
-        KeyBinding::new("cmd-shift-s", Swap, Some(ROOT)),
-        KeyBinding::new("cmd-shift-m", ToggleMode, Some(ROOT)),
-        KeyBinding::new("cmd-shift-f", FilesTab, Some(ROOT)),
-        KeyBinding::new("cmd-shift-c", CommitsTab, Some(ROOT)),
-        KeyBinding::new("cmd-b", ToggleSidebar, Some(ROOT)),
-        KeyBinding::new("cmd-q", Quit, Some(ROOT)),
-        KeyBinding::new("cmd-w", CloseTab, Some(ROOT)),
-        KeyBinding::new("cmd-shift-]", NextTab, Some(ROOT)),
-        KeyBinding::new("cmd-shift-[", PrevTab, Some(ROOT)),
+        KeyBinding::new("secondary-o", OpenRepo, Some(ROOT)),
+        KeyBinding::new("secondary-r", Refresh, Some(ROOT)),
+        KeyBinding::new("secondary-1", PickBase, Some(ROOT)),
+        KeyBinding::new("secondary-2", PickCompare, Some(ROOT)),
+        KeyBinding::new("secondary-shift-s", Swap, Some(ROOT)),
+        KeyBinding::new("secondary-shift-m", ToggleMode, Some(ROOT)),
+        KeyBinding::new("secondary-shift-f", FilesTab, Some(ROOT)),
+        KeyBinding::new("secondary-shift-c", CommitsTab, Some(ROOT)),
+        KeyBinding::new("secondary-b", ToggleSidebar, Some(ROOT)),
+        KeyBinding::new("secondary-q", Quit, Some(ROOT)),
+        KeyBinding::new("secondary-w", CloseTab, Some(ROOT)),
+        KeyBinding::new("secondary-shift-]", NextTab, Some(ROOT)),
+        KeyBinding::new("secondary-shift-[", PrevTab, Some(ROOT)),
         KeyBinding::new("ctrl-tab", NextTab, Some(ROOT)),
         KeyBinding::new("ctrl-shift-tab", PrevTab, Some(ROOT)),
         KeyBinding::new("f1", ShowInfo, Some(ROOT)),
-        KeyBinding::new("cmd-n", NewDiff, Some(ROOT)),
-        KeyBinding::new("alt-cmd-n", CompareFiles, Some(ROOT)),
-        KeyBinding::new("cmd-shift-n", NewWindow, Some(ROOT)),
-        KeyBinding::new("cmd-shift-w", CloseWindow, Some(ROOT)),
-        KeyBinding::new("cmd-v", Paste, Some(ROOT)),
-        KeyBinding::new("cmd-/", ShowShortcuts, Some(ROOT)),
+        KeyBinding::new("secondary-n", NewDiff, Some(ROOT)),
+        KeyBinding::new("alt-secondary-n", CompareFiles, Some(ROOT)),
+        KeyBinding::new("secondary-shift-n", NewWindow, Some(ROOT)),
+        KeyBinding::new("secondary-shift-w", CloseWindow, Some(ROOT)),
+        KeyBinding::new("secondary-v", Paste, Some(ROOT)),
+        KeyBinding::new("secondary-/", ShowShortcuts, Some(ROOT)),
         // Navigation works in both normal and text-input mode.
         KeyBinding::new("up", Up, Some(ROOT)),
         KeyBinding::new("down", Down, Some(ROOT)),
@@ -150,6 +155,10 @@ fn app_bindings() -> Vec<KeyBinding> {
 }
 
 pub fn init(cx: &mut App) {
+    // Apply the saved theme before any window renders.
+    if let Some(t) = state::Persisted::load().theme.as_deref().and_then(crate::theme::ThemeId::from_key) {
+        crate::theme::set_current(t);
+    }
     editor::init(cx);
     cx.bind_keys(app_bindings());
     cx.on_action(|_: &Quit, cx| cx.quit());
@@ -198,6 +207,11 @@ fn set_menus(cx: &mut App) {
                 MenuItem::action("Wrap Lines", ToggleWrap),
                 MenuItem::action("Ignore Whitespace", ToggleWhitespace),
                 MenuItem::separator(),
+                MenuItem::action("Theme: Black Metal", ThemeBlackMetal),
+                MenuItem::action("Theme: Gruvbox Dark", ThemeGruvboxDark),
+                MenuItem::action("Theme: Gruvbox Light", ThemeGruvboxLight),
+                MenuItem::action("Theme: Everforest Light", ThemeEverforestLight),
+                MenuItem::separator(),
                 MenuItem::action("PR Merge / Compare View", ToggleMode),
                 MenuItem::action("How the Views Differ", ShowInfo),
             ],
@@ -214,11 +228,15 @@ pub fn open_window(cx: &mut App, launch: Launch) {
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            // macOS: our own titlebar under transparent chrome, traffic lights inset.
+            // Linux: ask for server decorations; where the compositor refuses (e.g. GNOME
+            // Wayland) the titlebar draws its own window controls. Windows: native frame.
             titlebar: Some(TitlebarOptions {
                 title: Some("Kerf".into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.), px(10.))),
+                appears_transparent: cfg!(target_os = "macos"),
+                traffic_light_position: cfg!(target_os = "macos").then(|| point(px(12.), px(10.))),
             }),
+            window_decorations: Some(gpui::WindowDecorations::Server),
             window_background: WindowBackgroundAppearance::Opaque,
             window_min_size: Some(size(px(900.), px(600.))),
             ..Default::default()
@@ -248,14 +266,27 @@ mod tests {
         let editing = ["KerfInput", "KerfEditor"];
         assert_eq!(resolve("enter", &editing), "kerf_editor::Newline");
         assert_eq!(resolve("up", &editing), "kerf_editor::Up");
-        assert_eq!(resolve("cmd-v", &editing), "kerf_editor::Paste");
+        assert_eq!(resolve("secondary-v", &editing), "kerf_editor::Paste");
         assert_eq!(resolve("escape", &editing), "kerf_editor::Blur");
-        assert_eq!(resolve("cmd-shift-backspace", &editing), "kerf_editor::ClearAll");
+        assert_eq!(resolve("secondary-shift-backspace", &editing), "kerf_editor::ClearAll");
         assert_eq!(resolve("alt-down", &editing), "kerf_editor::MoveLineDown");
         // App shortcuts without an editor binding still work while typing.
-        assert_eq!(resolve("cmd-w", &editing), "kerf::CloseTab");
-        assert_eq!(resolve("cmd-shift-n", &editing), "kerf::NewWindow");
-        assert_eq!(resolve("alt-cmd-n", &["Kerf"]), "kerf::CompareFiles");
+        assert_eq!(resolve("secondary-w", &editing), "kerf::CloseTab");
+        assert_eq!(resolve("secondary-shift-n", &editing), "kerf::NewWindow");
+        assert_eq!(resolve("alt-secondary-n", &["Kerf"]), "kerf::CompareFiles");
+    }
+
+    /// Linux / Windows editing conventions (runs on those CI runners).
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn pc_editor_keys_follow_platform_conventions() {
+        let editing = ["KerfInput", "KerfEditor"];
+        assert_eq!(resolve("ctrl-left", &editing), "kerf_editor::WordLeft");
+        assert_eq!(resolve("ctrl-backspace", &editing), "kerf_editor::BackspaceWord");
+        assert_eq!(resolve("ctrl-home", &editing), "kerf_editor::DocStart");
+        assert_eq!(resolve("ctrl-y", &editing), "kerf_editor::Redo");
+        assert_eq!(resolve("ctrl-v", &editing), "kerf_editor::Paste");
+        assert_eq!(resolve("ctrl-o", &["Kerf"]), "kerf::OpenRepo");
     }
 
     #[test]

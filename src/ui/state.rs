@@ -23,6 +23,9 @@ pub struct Persisted {
     pub sidebar_w: Option<f32>,
     #[serde(default)]
     pub range_collapsed: bool,
+    /// Theme key (`theme::ThemeId::key`).
+    #[serde(default)]
+    pub theme: Option<String>,
     #[serde(default)]
     pub wrap: bool,
     #[serde(default)]
@@ -43,8 +46,20 @@ fn file() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("KERF_STATE_DIR") {
         return Some(PathBuf::from(dir).join("state.json"));
     }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/kerf/state.json"))
+    Some(config_dir()?.join("kerf").join("state.json"))
+}
+
+/// Per-OS config location: `~/Library/Application Support` (macOS), `%APPDATA%` (Windows),
+/// `$XDG_CONFIG_HOME` or `~/.config` (Linux and others).
+fn config_dir() -> Option<PathBuf> {
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if cfg!(target_os = "macos") {
+        Some(env("HOME")?.join("Library/Application Support"))
+    } else if cfg!(windows) {
+        env("APPDATA")
+    } else {
+        env("XDG_CONFIG_HOME").or_else(|| Some(env("HOME")?.join(".config")))
+    }
 }
 
 impl Persisted {

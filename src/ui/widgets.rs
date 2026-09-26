@@ -73,7 +73,7 @@ impl Render for Tip {
             .rounded(theme::RADIUS)
             .text_size(theme::TEXT_CONTROL)
             .text_color(theme::body())
-            .child(self.0)
+            .child(keys(self.0))
     }
 }
 
@@ -184,6 +184,9 @@ pub fn app_icon(size: f32) -> Div {
         (1.5, 22.0, 2.25)
     };
     let s = size / 120.;
+    // Brand mark: always the Black Metal colours, whatever the UI theme.
+    let brand = theme::palette_of(theme::ThemeId::BlackMetal);
+    let hex = |v: u32| -> Hsla { gpui::rgb(v).into() };
     let rect = |x: f32, y: f32, w: f32, h: f32, color: Hsla, r: f32| {
         div().absolute().left(px(x * s)).top(px(y * s)).w(px(w * s)).h(px(h * s)).rounded(px(r * s)).bg(color)
     };
@@ -194,10 +197,44 @@ pub fn app_icon(size: f32) -> Div {
         .w(px(size))
         .h(px(size))
         .rounded(px(28. * s))
-        .bg(theme::void())
+        .bg(hex(brand.void))
         .border_1()
-        .border_color(theme::line_hi())
-        .child(rect(cx - slit / 2. - gap - bar, 28., bar, 58., theme::del_fg(), 3.))
-        .child(rect(cx + slit / 2. + gap, 38., bar, 58., theme::add_fg(), 3.))
-        .child(rect(cx - slit / 2., 20., slit, 84., theme::frost(), 0.))
+        .border_color(hex(brand.line_hi))
+        .child(rect(cx - slit / 2. - gap - bar, 28., bar, 58., hex(brand.del_fg), 3.))
+        .child(rect(cx + slit / 2. + gap, 38., bar, 58., hex(brand.add_fg), 3.))
+        .child(rect(cx - slit / 2., 20., slit, 84., hex(brand.frost), 0.))
+}
+
+/// Shortcut labels are written Mac-style (⌘⇧N). Elsewhere they read "Ctrl+Shift+N".
+pub fn keys(label: &str) -> String {
+    if cfg!(target_os = "macos") {
+        return label.to_string();
+    }
+    let mut out = String::with_capacity(label.len() + 8);
+    for ch in label.chars() {
+        match ch {
+            '⌘' | '⌃' => out.push_str("Ctrl+"),
+            '⌥' => out.push_str("Alt+"),
+            '⇧' => out.push_str("Shift+"),
+            '↵' => out.push_str("Enter"),
+            '⌫' => out.push_str("Backspace"),
+            '⌦' => out.push_str("Delete"),
+            '⇥' => out.push_str("Tab"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod key_label_tests {
+    #[test]
+    fn labels_translate_off_macos() {
+        let l = super::keys("New window  ⌘⇧N");
+        if cfg!(target_os = "macos") {
+            assert_eq!(l, "New window  ⌘⇧N");
+        } else {
+            assert_eq!(l, "New window  Ctrl+Shift+N");
+        }
+    }
 }

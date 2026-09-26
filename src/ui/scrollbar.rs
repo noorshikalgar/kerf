@@ -217,7 +217,7 @@ impl Kerf {
                         .right_0()
                         .top(px(top))
                         .h(px(h))
-                        .bg(gpui::hsla(0., 0., 1., if active { 0.12 } else { 0.06 }))
+                        .bg(theme::wash(if active { 0.12 } else { 0.06 }))
                         .border_y_1()
                         .border_color(if active { theme::frost() } else { theme::mute() }),
                 )

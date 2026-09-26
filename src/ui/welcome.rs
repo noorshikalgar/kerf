@@ -235,131 +235,278 @@ impl Kerf {
             .into_any_element()
     }
 
-    /// Titlebar repository menu: recents, browse, close.
+    // ───────────────────────────── repository switcher ─────────────────────────────
+
+    pub fn open_repo_menu(&mut self, cx: &mut Context<Self>) {
+        self.repo_menu_open = true;
+        self.repo_query.clear();
+        // Preselect the first repo that isn't the current one.
+        self.repo_sel = self
+            .repo_menu_items()
+            .iter()
+            .position(|i| matches!(i, RepoItem::Recent(p) if Some(p) != self.repo_path.as_ref()))
+            .unwrap_or(0);
+        self.input = super::app::Input::RepoMenu;
+        cx.notify();
+    }
+
+    pub fn close_repo_menu(&mut self, cx: &mut Context<Self>) {
+        self.repo_menu_open = false;
+        if self.input == super::app::Input::RepoMenu {
+            self.input = super::app::Input::None;
+        }
+        cx.notify();
+    }
+
+    /// Everything the switcher lists, in keyboard order: matching recents, then actions.
+    pub fn repo_menu_items(&self) -> Vec<RepoItem> {
+        let q = self.repo_query.to_lowercase();
+        let mut items: Vec<RepoItem> = self
+            .persisted
+            .recents
+            .iter()
+            .filter(|p| q.is_empty() || p.display().to_string().to_lowercase().contains(&q))
+            .take(MAX_RECENTS)
+            .cloned()
+            .map(RepoItem::Recent)
+            .collect();
+        items.push(RepoItem::Browse);
+        if self.repo_path.is_some() && q.is_empty() {
+            items.push(RepoItem::Close);
+        }
+        items
+    }
+
+    pub fn activate_repo_item(&mut self, item: RepoItem, cx: &mut Context<Self>) {
+        self.close_repo_menu(cx);
+        match item {
+            RepoItem::Recent(p) if p.exists() && Some(&p) != self.repo_path.as_ref() => self.open_repo(p, cx),
+            RepoItem::Recent(_) => {}
+            RepoItem::Browse => self.prompt_open(cx),
+            RepoItem::Close => self.close_repo(cx),
+        }
+    }
+
+    /// Titlebar repository switcher: search, recents with avatars, footer actions.
     pub fn render_repo_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.repo_menu_open {
             return None;
         }
         let nerd = self.nerd();
-        let current = self.repo_path.clone();
-        let recents: Vec<_> = self.persisted.recents.iter().take(MAX_RECENTS).cloned().collect();
-        let row = |id: SharedString| {
+        let items = self.repo_menu_items();
+        let sel = self.repo_sel.min(items.len().saturating_sub(1));
+        let recents: Vec<(usize, std::path::PathBuf)> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, it)| match it {
+                RepoItem::Recent(p) => Some((i, p.clone())),
+                _ => None,
+            })
+            .collect();
+        let actions: Vec<(usize, RepoItem)> = items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| !matches!(it, RepoItem::Recent(_)))
+            .map(|(i, it)| (i, it.clone()))
+            .collect();
+
+        let row = |i: usize, active: bool| {
             div()
-                .id(id)
-                .mx(px(4.))
+                .id(("repo-item", i))
+                .mx(px(6.))
                 .px(px(8.))
-                .py(px(6.))
+                .h(px(40.))
                 .flex()
                 .items_center()
                 .gap(px(10.))
-                .rounded(theme::RADIUS)
+                .rounded(px(6.))
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::ash()))
+                .when(active, |d| d.bg(theme::slate()))
+                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                    if *hovered && this.repo_sel != i {
+                        this.repo_sel = i;
+                        cx.notify();
+                    }
+                }))
         };
-        let close_menu = |this: &mut Kerf| this.repo_menu_open = false;
-        let menu = div()
-            .id("repo-menu")
-            .absolute()
-            .top(theme::TITLEBAR_H + px(4.))
-            .left(px(96.))
-            .w(px(380.))
-            .max_h(px(480.))
-            .overflow_y_scroll()
-            .py(px(4.))
+
+        let search = div()
+            .h(px(40.))
+            .mx(px(6.))
+            .mt(px(6.))
+            .px(px(10.))
             .flex()
-            .flex_col()
-            .bg(theme::crypt())
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(6.))
+            .bg(theme::abyss())
             .border_1()
             .border_color(theme::line_hi())
-            .rounded(theme::RADIUS)
-            .shadow_lg()
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(micro("Recent").px(px(12.)).pt(px(6.)).pb(px(4.)))
-            .when(recents.is_empty(), |d| {
-                d.child(
-                    div()
-                        .px(px(12.))
-                        .py(px(6.))
-                        .text_size(theme::TEXT_CONTROL)
-                        .text_color(theme::mute())
-                        .child("No recent repositories"),
-                )
+            .text_size(theme::TEXT_LIST)
+            .child(div().text_color(theme::mute()).child(if nerd { "\u{ea6d}" } else { "⌕" }))
+            .when(self.repo_query.is_empty(), |d| {
+                d.child(div().text_color(theme::mute()).child("Search repositories…"))
             })
-            .children(recents.into_iter().enumerate().map(|(i, p)| {
-                let exists = p.exists();
-                let is_current = current.as_ref() == Some(&p);
-                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let path = tilde(&p.display().to_string());
-                let open_p = p.clone();
-                row(SharedString::from(format!("menu-recent-{i}")))
-                    .when(!exists, |d| d.opacity(0.5))
-                    .child(icon(nerd, "\u{ea62}"))
+            .when(!self.repo_query.is_empty(), |d| {
+                d.child(div().text_color(theme::bone()).child(self.repo_query.clone()))
+            })
+            .child(div().w(px(1.)).h(px(16.)).bg(theme::frost()));
+
+        let list =
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .py(px(6.))
+                .when(recents.is_empty(), |d| {
+                    d.child(
+                        div().px(px(16.)).py(px(10.)).text_size(theme::TEXT_CONTROL).text_color(theme::mute()).child(
+                            if self.repo_query.is_empty() { "No recent repositories yet" } else { "No matches" },
+                        ),
+                    )
+                })
+                .children(recents.into_iter().map(|(i, p)| {
+                    let exists = p.exists();
+                    let current = self.repo_path.as_ref() == Some(&p);
+                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let path = tilde(&p.parent().map(|x| x.display().to_string()).unwrap_or_default());
+                    let open_p = p.clone();
+                    let remove_p = p.clone();
+                    row(i, i == sel)
+                        .group("repo-row")
+                        .when(!exists, |d| d.opacity(0.55))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.activate_repo_item(RepoItem::Recent(open_p.clone()), cx)
+                        }))
+                        .child(avatar(&name))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .items_baseline()
+                                .gap(px(8.))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(theme::TEXT_LIST)
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme::bone())
+                                        .when(!exists, |d| d.line_through())
+                                        .child(name),
+                                )
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .whitespace_nowrap()
+                                        .text_size(theme::TEXT_CONTROL)
+                                        .text_color(theme::mute())
+                                        .child(if exists { path } else { "missing".into() }),
+                                ),
+                        )
+                        .when(current, |d| {
+                            d.child(
+                                div()
+                                    .flex_none()
+                                    .text_size(theme::TEXT_LIST)
+                                    .text_color(theme::frost())
+                                    .child(if nerd { "\u{eab2}" } else { "✓" }),
+                            )
+                        })
+                        .when(!current, |d| {
+                            d.child(
+                                div()
+                                    .id(SharedString::from(format!("repo-remove-{i}")))
+                                    .flex_none()
+                                    .w(px(22.))
+                                    .h(px(22.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(theme::RADIUS)
+                                    .text_color(theme::mute())
+                                    .invisible()
+                                    .group_hover("repo-row", |s| s.visible())
+                                    .hover(|s| s.bg(theme::line_hi()).text_color(theme::bone()))
+                                    .tooltip(|_, cx| cx.new(|_| super::widgets::Tip("Remove from Recent")).into())
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.persisted.recents.retain(|r| r != &remove_p);
+                                        this.persisted.save();
+                                        cx.notify();
+                                    }))
+                                    .child(if nerd { "\u{ea76}" } else { "✕" }),
+                            )
+                        })
+                }));
+
+        let footer = div().flex().flex_col().gap(px(2.)).py(px(6.)).border_t_1().border_color(theme::line()).children(
+            actions.into_iter().map(|(i, item)| {
+                let (glyph, label, danger) = match item {
+                    RepoItem::Browse => ("\u{ea83}", "Open Folder…", false),
+                    _ => ("\u{ea76}", "Close Repository", true),
+                };
+                let it = item.clone();
+                row(i, i == sel)
+                    .h(px(32.))
+                    .on_click(cx.listener(move |this, _, _, cx| this.activate_repo_item(it.clone(), cx)))
+                    .child(div().w(px(24.)).flex().justify_center().text_color(theme::mute()).child(if nerd {
+                        glyph
+                    } else {
+                        "›"
+                    }))
                     .child(
                         div()
                             .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(theme::TEXT_LIST)
-                                    .text_color(if is_current { theme::frost() } else { theme::bone() })
-                                    .when(!exists, |d| d.line_through())
-                                    .child(name),
-                            )
-                            .child(
-                                div()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .text_size(theme::TEXT_CONTROL)
-                                    .text_color(theme::mute())
-                                    .child(path),
-                            ),
+                            .text_size(theme::TEXT_LIST)
+                            .text_color(if danger { theme::del_fg() } else { theme::body() })
+                            .child(label),
                     )
-                    .when(is_current, |d| {
-                        d.child(div().text_size(theme::TEXT_MICRO).text_color(theme::frost()).child("Open"))
+                    .when(matches!(item, RepoItem::Browse), |d| {
+                        d.child(
+                            div()
+                                .text_size(theme::TEXT_CONTROL)
+                                .text_color(theme::mute())
+                                .child(super::widgets::keys("⌘O")),
+                        )
                     })
-                    .when(exists && !is_current, |d| {
-                        d.on_click(cx.listener(move |this, _, _, cx| {
-                            close_menu(this);
-                            this.open_repo(open_p.clone(), cx);
-                        }))
-                    })
-            }))
-            .child(div().h(px(1.)).my(px(4.)).bg(theme::line()))
-            .child(
-                row("menu-browse".into())
-                    .child(icon(nerd, "\u{ea83}"))
-                    .child(div().text_size(theme::TEXT_LIST).text_color(theme::bone()).child("Browse…"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        close_menu(this);
-                        this.prompt_open(cx);
-                    })),
-            )
-            .when(current.is_some(), |d| {
-                d.child(
-                    row("menu-close".into())
-                        .child(icon(nerd, "\u{ea76}"))
-                        .child(div().text_size(theme::TEXT_LIST).text_color(theme::body()).child("Close Repository"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            close_menu(this);
-                            this.close_repo(cx);
-                        })),
-                )
-            });
+            }),
+        );
+
+        let left = if cfg!(target_os = "macos") { 76. } else { 8. };
         Some(
             div()
                 .id("repo-menu-backdrop")
+                // Modal: swallow mouse + wheel so the view behind never scrolls or reacts.
+                .occlude()
                 .absolute()
                 .top_0()
                 .left_0()
                 .size_full()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.repo_menu_open = false;
-                    cx.notify();
-                }))
-                .child(menu)
+                .on_click(cx.listener(|this, _, _, cx| this.close_repo_menu(cx)))
+                .child(
+                    div()
+                        .id("repo-menu")
+                        .absolute()
+                        .top(theme::TITLEBAR_H + px(6.))
+                        .left(px(left))
+                        .w(px(440.))
+                        .max_h(px(520.))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .bg(theme::crypt())
+                        .border_1()
+                        .border_color(theme::line_hi())
+                        .rounded(px(10.))
+                        .shadow_lg()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(search)
+                        .child(list)
+                        .child(footer),
+                )
                 .into_any_element(),
         )
     }
@@ -391,4 +538,36 @@ impl Kerf {
         }
         cx.notify();
     }
+}
+
+/// A row in the repository switcher.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RepoItem {
+    Recent(std::path::PathBuf),
+    Browse,
+    Close,
+}
+
+/// Letter tile for a repository: first letter on a tint picked from the name.
+fn avatar(name: &str) -> Div {
+    let tints =
+        [theme::frost(), theme::add_fg(), theme::mod_fg(), theme::del_fg(), theme::syn_type(), theme::syn_attr()];
+    let h = name.bytes().fold(0usize, |a, b| a.wrapping_mul(31).wrapping_add(b as usize));
+    let tint = tints[h % tints.len()];
+    let letter = name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    div()
+        .w(px(26.))
+        .h(px(26.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .bg(tint.opacity(0.16))
+        .border_1()
+        .border_color(tint.opacity(0.35))
+        .text_size(theme::TEXT_LIST)
+        .font_weight(FontWeight::BOLD)
+        .text_color(tint)
+        .child(letter)
 }
